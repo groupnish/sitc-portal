@@ -1,0 +1,183 @@
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from flask import current_app
+from models.models import User, Notification, db
+import urllib.parse
+
+
+def send_email(to_emails, subject, html_body, attachments=None):
+    cfg = current_app.config
+    if not cfg.get("MAIL_USERNAME") or not cfg.get("MAIL_PASSWORD"):
+        current_app.logger.warning("Gmail SMTP not configured — skipping email")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = cfg["MAIL_FROM"]
+        msg["To"]      = ", ".join(to_emails)
+        msg.attach(MIMEText(html_body, "html"))
+
+        if attachments:
+            for path, filename in attachments:
+                with open(path, "rb") as f:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+                msg.attach(part)
+
+        with smtplib.SMTP(cfg["MAIL_SERVER"], cfg["MAIL_PORT"]) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
+            server.sendmail(cfg["MAIL_FROM"], to_emails, msg.as_string())
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Email send failed: {e}")
+        return False
+
+
+def get_emails_by_roles(roles):
+    users = User.query.filter(
+        User.role.in_(roles), User.is_active == True
+    ).all()
+    return [u.email for u in users if u.email]
+
+
+def get_whatsapp_numbers_by_roles(roles):
+    users = User.query.filter(
+        User.role.in_(roles), User.is_active == True
+    ).all()
+    return [(u.name, u.phone_whatsapp) for u in users if u.phone_whatsapp]
+
+
+def build_whatsapp_link(phone, message, is_mobile=False):
+    encoded = urllib.parse.quote(message)
+    phone_clean = phone.replace("+", "").replace(" ", "").replace("-", "")
+    if is_mobile:
+        return f"https://wa.me/{phone_clean}?text={encoded}"
+    return f"https://web.whatsapp.com/send?phone={phone_clean}&text={encoded}"
+
+
+def save_notification(project_id, user_ids, event_type, message, ref_id=None, ref_type=None):
+    for uid in user_ids:
+        n = Notification(
+            project_id=project_id, user_id=uid,
+            event_type=event_type, message=message,
+            ref_id=ref_id, ref_type=ref_type
+        )
+        db.session.add(n)
+    db.session.commit()
+
+
+# ── Event-specific helpers ────────────────────────────────────────────────────
+
+def notify_grn_created(grn, project):
+    roles = []
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_grn and u.email and u.role in ["accounts", "site", "management"]]
+
+    subject = f"[{project.code}] GRN {grn.grn_number} created — {grn.boq_item.sr_no}"
+    html = f"""
+    <h3>Material Inward — GRN Created</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>GRN No:</b> {grn.grn_number}</p>
+    <p><b>Date:</b> {grn.grn_date}</p>
+    <p><b>BOQ Item:</b> {grn.boq_item.sr_no} — {grn.boq_item.description[:120]}</p>
+    <p><b>Qty Received:</b> {grn.qty_received} {grn.boq_item.unit}</p>
+    <p><b>Vendor:</b> {grn.vendor_name}</p>
+    <p><b>Challan No:</b> {grn.challan_no}</p>
+    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)
+
+    user_ids = [u.id for u in users if u.notify_grn and u.role in ["accounts", "site", "management"]]
+    save_notification(project.id, user_ids, "grn_created",
+                      f"GRN {grn.grn_number} created for {grn.boq_item.sr_no}",
+                      ref_id=grn.id, ref_type="grn")
+
+
+def notify_dispatch_created(dn, project):
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_dispatch and u.email and u.role in ["accounts", "site", "management"]]
+
+    subject = f"[{project.code}] Dispatch {dn.dn_number} — {dn.boq_item.sr_no} to {dn.site_destination}"
+    html = f"""
+    <h3>Material Outward — Dispatch Note Created</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>DN No:</b> {dn.dn_number}</p>
+    <p><b>Date:</b> {dn.dispatch_date}</p>
+    <p><b>BOQ Item:</b> {dn.boq_item.sr_no} — {dn.boq_item.description[:120]}</p>
+    <p><b>Qty Dispatched:</b> {dn.qty_dispatched} {dn.boq_item.unit}</p>
+    <p><b>Site Destination:</b> {dn.site_destination}</p>
+    <p><b>Vehicle No:</b> {dn.vehicle_no}</p>
+    <p><b>Driver:</b> {dn.driver_name}</p>
+    <p><b>Amount (excl. GST):</b> ₹{float(dn.boq_item.rate * dn.qty_dispatched):,.2f}</p>
+    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)
+
+    user_ids = [u.id for u in users if u.notify_dispatch and u.role in ["accounts", "site", "management"]]
+    save_notification(project.id, user_ids, "dispatch_created",
+                      f"Dispatch {dn.dn_number} created for {dn.boq_item.sr_no}",
+                      ref_id=dn.id, ref_type="dispatch")
+
+
+def notify_progress_updated(project, updated_by_name, items_count):
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_progress and u.email and u.role in ["accounts", "management"]]
+
+    subject = f"[{project.code}] Site progress updated — {items_count} item(s)"
+    html = f"""
+    <h3>Site Progress Updated</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>Updated by:</b> {updated_by_name}</p>
+    <p><b>Items updated:</b> {items_count}</p>
+    <p>Please review site progress and prepare RA bill if milestone is reached.</p>
+    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)
+
+    user_ids = [u.id for u in users if u.notify_progress and u.role in ["accounts", "management"]]
+    save_notification(project.id, user_ids, "progress_updated",
+                      f"Site progress updated for {project.code} — {items_count} items",
+                      ref_type="progress")
+
+
+def notify_ra_generated(ra, project, pdf_path=None):
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_ra and u.email]
+
+    subject = f"[{project.code}] RA Bill #{ra.ra_number} — {ra.invoice_no} — ₹{float(ra.net_payable):,.0f}"
+    html = f"""
+    <h3>RA Bill Generated</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>Client:</b> {project.client_name}</p>
+    <p><b>RA Bill No:</b> {ra.ra_number}</p>
+    <p><b>Invoice No:</b> {ra.invoice_no}</p>
+    <p><b>Invoice Date:</b> {ra.invoice_date}</p>
+    <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px">
+      <tr><td><b>Supply value (this bill)</b></td><td>₹{float(ra.supply_value_this):,.2f}</td></tr>
+      <tr><td><b>E&C value (this bill)</b></td><td>₹{float(ra.ec_value_this):,.2f}</td></tr>
+      <tr><td><b>Taxable value</b></td><td>₹{float(ra.taxable_value):,.2f}</td></tr>
+      <tr><td><b>IGST 18%</b></td><td>₹{float(ra.igst_amount):,.2f}</td></tr>
+      <tr><td><b>Gross total</b></td><td>₹{float(ra.gross_total):,.2f}</td></tr>
+      <tr><td><b>Advance recovery</b></td><td>₹{float(ra.advance_recovery):,.2f}</td></tr>
+      <tr style="background:#e8f5ee"><td><b>Net payable</b></td><td><b>₹{float(ra.net_payable):,.2f}</b></td></tr>
+    </table>
+    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    """
+    attachments = [(pdf_path, f"RA_{ra.ra_number}_{ra.invoice_no}.pdf")] if pdf_path else None
+    if to_emails:
+        send_email(to_emails, subject, html, attachments=attachments)
+
+    user_ids = [u.id for u in users if u.notify_ra]
+    save_notification(project.id, user_ids, "ra_generated",
+                      f"RA Bill #{ra.ra_number} generated — ₹{float(ra.net_payable):,.0f}",
+                      ref_id=ra.id, ref_type="ra_bill")
