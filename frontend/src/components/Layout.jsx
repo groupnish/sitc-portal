@@ -39,8 +39,10 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
-          <h2>SITC Portal</h2>
-          <p>{activeProject?.code || 'No project selected'}</p>
+          <img src="/sitc-portal/logo.png" alt="Group Nish"
+            style={{width:'100%', maxWidth:140, height:'auto', display:'block', marginBottom:6}} />
+          <p style={{fontSize:12, fontWeight:600, color:'var(--text)', marginBottom:1}}>Project Tracker</p>
+          <p style={{fontSize:11, color:'var(--text-s)'}}>{activeProject?.code || 'No project'}</p>
         </div>
 
         <div className="nav-section">Main</div>
@@ -114,7 +116,7 @@ export default function Layout() {
           <button className="menu-btn" onClick={()=>setSideOpen(s=>!s)} aria-label="Menu">
             <Icon d={ICONS.menu}/>
           </button>
-          <span className="topbar-title">{activeProject?.name || 'SITC Portal'}</span>
+          <span className="topbar-title">{activeProject?.name || 'Project Tracker — Group Nish'}</span>
           <div className="topbar-actions">
             <span className={`badge ${roleBadge[user?.role]||'badge-gray'}`}>{user?.role}</span>
             <span style={{fontSize:12,color:'var(--text-s)'}}>{user?.name}</span>

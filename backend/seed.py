@@ -114,19 +114,22 @@ with app.app_context():
     db.create_all()
 
     # Admin user
-    if not User.query.filter_by(email="admin@company.com").first():
-        admin = User(name="Admin User", email="admin@company.com", role="admin",
+    if not User.query.filter_by(email="akshar@groupnish.com").first():
+        admin = User(name="Akshar Desai", email="akshar@groupnish.com", role="admin",
                      phone_whatsapp="+919999999999")
         admin.set_password("Admin@1234")
         db.session.add(admin)
-        print("Admin created: admin@company.com / Admin@1234")
+        print("Admin created: akshar@groupnish.com / Admin@1234")
 
     # Sample users
     sample_users = [
-        ("SCM User", "scm@company.com", "scm", "+919111111111"),
-        ("Accounts User", "accounts@company.com", "accounts", "+919222222222"),
-        ("Site Engineer", "site@company.com", "site", "+919333333333"),
-        ("Management", "mgmt@company.com", "management", "+919444444444"),
+        ("Dipesh",   "dipesh@groupnish.com",  "accounts",   "+919111111111"),
+        ("Niraj",    "niraj@groupnish.com",   "management", "+919222222222"),
+        ("Store",    "store@groupnish.com",   "scm",        "+919333333333"),
+        ("Vivek",    "vivek@groupnish.com",   "site",       "+919444444444"),
+        ("Khyati",   "khyati@groupnish.com",  "site",       "+919555555555"),
+        ("Viral",    "viral@groupnish.com",   "accounts",   "+919666666666"),
+        ("Rahul K",  "rahul.k@groupnish.com", "site",       "+919777777777"),
     ]
     for name, email, role, phone in sample_users:
         if not User.query.filter_by(email=email).first():

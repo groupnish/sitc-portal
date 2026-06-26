@@ -24,15 +24,19 @@ export default function Login() {
     <div className="login-wrap">
       <div className="login-card">
         <div className="login-logo">
-          <h1>SITC Portal</h1>
-          <p>SCM · Dispatch · Site Progress · RA Bills</p>
+          <img src="/sitc-portal/logo.png" alt="Group Nish Logo"
+            style={{width:140, height:'auto', marginBottom:12, display:'block', margin:'0 auto 12px'}} />
+          <h1 style={{fontSize:18, color:'#1a1a18', fontWeight:600}}>Project Tracker</h1>
+          <p style={{fontSize:11, color:'var(--text-s)', marginTop:3}}>
+            SCM · Dispatch · Site Progress · RA Bills
+          </p>
         </div>
-        <form onSubmit={handle}>
+        <form onSubmit={handle} style={{marginTop:24}}>
           <div className="form-group" style={{marginBottom:12}}>
             <label className="form-label">Email</label>
             <input className="form-input" type="email" required
               value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}
-              placeholder="you@company.com" autoFocus />
+              placeholder="you@groupnish.com" autoFocus />
           </div>
           <div className="form-group" style={{marginBottom:20}}>
             <label className="form-label">Password</label>
