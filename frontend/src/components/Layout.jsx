@@ -40,10 +40,20 @@ export default function Layout() {
       <aside className={`sidebar ${sideOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
           <img src="/sitc-portal/logo.png" alt="Group Nish"
-            style={{width:'100%', maxWidth:140, height:'auto', display:'block', marginBottom:6}} />
-          <p style={{fontSize:12, fontWeight:600, color:'var(--text)', marginBottom:1}}>Project Tracker</p>
-          <p style={{fontSize:11, color:'var(--text-s)'}}>{activeProject?.code || 'No project'}</p>
+            style={{width:'100%', maxWidth:150, height:'auto', display:'block', margin:'0 auto'}} />
         </div>
+
+        {projectList.length > 0 && (
+          <div className="project-switcher">
+            <label>Active project</label>
+            <select value={activeProject?.id||''} onChange={e=>{
+              const p=projectList.find(x=>x.id===parseInt(e.target.value))
+              if(p) switchProject(p)
+            }}>
+              {projectList.map(p=><option key={p.id} value={p.id}>{p.code} — {p.name.substring(0,30)}</option>)}
+            </select>
+          </div>
+        )}
 
         <div className="nav-section">Main</div>
         <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/" end onClick={()=>setSideOpen(false)}>
@@ -97,17 +107,6 @@ export default function Layout() {
           <Icon d={ICONS.logout}/> Logout
         </div>
 
-        {projectList.length > 0 && (
-          <div className="project-switcher">
-            <label>Active project</label>
-            <select value={activeProject?.id||''} onChange={e=>{
-              const p=projectList.find(x=>x.id===parseInt(e.target.value))
-              if(p) switchProject(p)
-            }}>
-              {projectList.map(p=><option key={p.id} value={p.id}>{p.code}</option>)}
-            </select>
-          </div>
-        )}
       </aside>
 
       {/* Main */}
