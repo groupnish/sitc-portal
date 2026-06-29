@@ -4,7 +4,6 @@ import { dispatch, boq, users } from '../../services/api'
 import api from '../../services/api'
 import { openWhatsApp, dispatchWhatsAppMsg } from '../../utils/whatsapp'
 import toast from 'react-hot-toast'
-import api from '../../services/api'
 
 const today = () => new Date().toISOString().split('T')[0]
 const SITES = [
