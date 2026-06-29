@@ -1,4 +1,5 @@
 import smtplib
+import threading
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -8,18 +9,15 @@ from models.models import User, Notification, db
 import urllib.parse
 
 
-def send_email(to_emails, subject, html_body, attachments=None):
-    cfg = current_app.config
-    if not cfg.get("MAIL_USERNAME") or not cfg.get("MAIL_PASSWORD"):
-        current_app.logger.warning("Gmail SMTP not configured — skipping email")
-        return False
+def _send_email_sync(mail_server, mail_port, mail_user, mail_pass,
+                     mail_from, to_emails, subject, html_body, attachments):
+    """Runs in background thread — never blocks the request."""
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"]    = cfg["MAIL_FROM"]
+        msg["From"]    = mail_from
         msg["To"]      = ", ".join(to_emails)
         msg.attach(MIMEText(html_body, "html"))
-
         if attachments:
             for path, filename in attachments:
                 with open(path, "rb") as f:
@@ -28,16 +26,35 @@ def send_email(to_emails, subject, html_body, attachments=None):
                 encoders.encode_base64(part)
                 part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
                 msg.attach(part)
-
-        with smtplib.SMTP(cfg["MAIL_SERVER"], cfg["MAIL_PORT"]) as server:
+        with smtplib.SMTP(mail_server, mail_port, timeout=25) as server:
             server.ehlo()
             server.starttls()
-            server.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
-            server.sendmail(cfg["MAIL_FROM"], to_emails, msg.as_string())
-        return True
+            server.login(mail_user, mail_pass)
+            server.sendmail(mail_from, to_emails, msg.as_string())
+        print(f"Email sent to: {to_emails}")
     except Exception as e:
-        current_app.logger.error(f"Email send failed: {e}")
+        print(f"Email send failed: {e}")
+
+
+def send_email(to_emails, subject, html_body, attachments=None):
+    cfg = current_app.config
+    if not cfg.get("MAIL_USERNAME") or not cfg.get("MAIL_PASSWORD"):
+        print("Gmail SMTP not configured — skipping email")
         return False
+    if not to_emails:
+        return False
+    # Run in background thread so it never blocks the HTTP request
+    t = threading.Thread(
+        target=_send_email_sync,
+        args=(
+            cfg["MAIL_SERVER"], cfg["MAIL_PORT"],
+            cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"],
+            cfg["MAIL_FROM"], to_emails, subject, html_body, attachments
+        ),
+        daemon=True
+    )
+    t.start()
+    return True
 
 
 def get_emails_by_roles(roles):
