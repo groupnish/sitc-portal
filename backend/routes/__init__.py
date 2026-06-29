@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models.models import (Project, BOQItem, User, GRN, DispatchNote,
                             SiteProgress, RABill, RABillLine, Notification, db)
 from services.notifications import (notify_grn_created, notify_dispatch_created,
-                                     notify_progress_updated, notify_ra_generated)
+                                     notify_progress_updated, notify_ra_generated,
+                                     notify_invoice_marked, notify_ra_status_changed)
 from services.export import generate_ra_excel, generate_ra_pdf
 from datetime import date, datetime
 from decimal import Decimal
@@ -258,6 +259,10 @@ def mark_invoiced(did):
     dn = DispatchNote.query.get_or_404(did)
     dn.invoice_status = "invoiced"
     db.session.commit()
+    user = current_user()
+    project = Project.query.get(dn.project_id)
+    try: notify_invoice_marked(dn, project, user.name if user else "Accounts")
+    except Exception as e: print(f"Notify error: {e}")
     return jsonify(dn.to_dict())
 
 # ── Site Progress ─────────────────────────────────────────────────────────────
@@ -481,14 +486,18 @@ def export_pdf(rid):
 def update_status(rid):
     ra = RABill.query.get_or_404(rid)
     data = request.get_json()
-    ra.status = data.get("status", ra.status)
+    new_status = data.get("status", ra.status)
+    ra.status = new_status
     if data.get("irn_number"): ra.irn_number = data["irn_number"]
     if ra.status == "submitted": ra.submitted_at = datetime.utcnow()
     db.session.commit()
-    if ra.status == "submitted":
-        project = Project.query.get(ra.project_id)
+    user = current_user()
+    project = Project.query.get(ra.project_id)
+    if new_status == "submitted":
         try: notify_ra_generated(ra, project)
         except Exception as e: print(f"Notify error: {e}")
+    try: notify_ra_status_changed(ra, project, new_status, user.name if user else "System")
+    except Exception as e: print(f"Notify error: {e}")
     return jsonify(ra.to_dict())
 
 # ── Notifications ─────────────────────────────────────────────────────────────
