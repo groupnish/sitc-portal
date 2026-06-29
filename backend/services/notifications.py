@@ -12,6 +12,11 @@ import urllib.parse
 def _send_email_sync(mail_server, mail_port, mail_user, mail_pass,
                      mail_from, to_emails, subject, html_body, attachments):
     """Runs in background thread — never blocks the request."""
+    print(f"[EMAIL DEBUG] _send_email_sync started")
+    print(f"[EMAIL DEBUG] Server: {mail_server}:{mail_port}")
+    print(f"[EMAIL DEBUG] From: {mail_from}")
+    print(f"[EMAIL DEBUG] To: {to_emails}")
+    print(f"[EMAIL DEBUG] Subject: {subject}")
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -26,34 +31,49 @@ def _send_email_sync(mail_server, mail_port, mail_user, mail_pass,
                 encoders.encode_base64(part)
                 part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
                 msg.attach(part)
+        print(f"[EMAIL DEBUG] Connecting to SMTP...")
         with smtplib.SMTP(mail_server, mail_port, timeout=25) as server:
             server.ehlo()
+            print(f"[EMAIL DEBUG] EHLO OK")
             server.starttls()
+            print(f"[EMAIL DEBUG] STARTTLS OK")
             server.login(mail_user, mail_pass)
+            print(f"[EMAIL DEBUG] Login OK")
             server.sendmail(mail_from, to_emails, msg.as_string())
-        print(f"Email sent to: {to_emails}")
+            print(f"[EMAIL DEBUG] sendmail OK")
+        print(f"[EMAIL DEBUG] Email sent successfully to: {to_emails}")
     except Exception as e:
-        print(f"Email send failed: {e}")
+        print(f"[EMAIL DEBUG] FAILED at step — {type(e).__name__}: {e}")
 
 
 def send_email(to_emails, subject, html_body, attachments=None):
     cfg = current_app.config
-    if not cfg.get("MAIL_USERNAME") or not cfg.get("MAIL_PASSWORD"):
-        print("Gmail SMTP not configured — skipping email")
+    mail_user = cfg.get("MAIL_USERNAME")
+    mail_pass = cfg.get("MAIL_PASSWORD")
+
+    print(f"[EMAIL DEBUG] send_email called")
+    print(f"[EMAIL DEBUG] MAIL_USERNAME set: {bool(mail_user)} — value: '{mail_user}'")
+    print(f"[EMAIL DEBUG] MAIL_PASSWORD set: {bool(mail_pass)} — length: {len(mail_pass) if mail_pass else 0}")
+    print(f"[EMAIL DEBUG] to_emails: {to_emails}")
+
+    if not mail_user or not mail_pass:
+        print("[EMAIL DEBUG] Skipping — SMTP credentials missing")
         return False
     if not to_emails:
+        print("[EMAIL DEBUG] Skipping — to_emails is empty")
         return False
-    # Run in background thread so it never blocks the HTTP request
+
     t = threading.Thread(
         target=_send_email_sync,
         args=(
             cfg["MAIL_SERVER"], cfg["MAIL_PORT"],
-            cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"],
+            mail_user, mail_pass,
             cfg["MAIL_FROM"], to_emails, subject, html_body, attachments
         ),
         daemon=True
     )
     t.start()
+    print(f"[EMAIL DEBUG] Background thread started")
     return True
 
 
@@ -101,8 +121,9 @@ def notify_grn_created(grn, project):
         unit  = boq.unit if boq else ""
 
         users = User.query.filter(User.is_active == True).all()
-        # FIX: notify_grn flag is the sole filter — no role restriction
+        print(f"[EMAIL DEBUG] notify_grn_created — active users: {[(u.email, u.notify_grn) for u in users]}")
         to_emails = [u.email for u in users if u.notify_grn and u.email]
+        print(f"[EMAIL DEBUG] to_emails after filter: {to_emails}")
 
         subject = f"[{project.code}] GRN {grn.grn_number} created — {sr_no}"
         html = f"""
@@ -119,7 +140,6 @@ def notify_grn_created(grn, project):
         if to_emails:
             send_email(to_emails, subject, html)
 
-        # FIX: same — no role restriction on in-app notifications
         user_ids = [u.id for u in users if u.notify_grn]
         save_notification(project.id, user_ids, "grn_created",
                           f"GRN {grn.grn_number} created for {sr_no}",
@@ -139,7 +159,6 @@ def notify_dispatch_created(dn, project):
         amt   = rate * float(dn.qty_dispatched)
 
         users = User.query.filter(User.is_active == True).all()
-        # FIX: notify_dispatch flag is the sole filter — no role restriction
         to_emails = [u.email for u in users if u.notify_dispatch and u.email]
 
         subject = f"[{project.code}] Dispatch {dn.dn_number} — {sr_no} to {dn.site_destination}"
@@ -159,7 +178,6 @@ def notify_dispatch_created(dn, project):
         if to_emails:
             send_email(to_emails, subject, html)
 
-        # FIX: same — no role restriction on in-app notifications
         user_ids = [u.id for u in users if u.notify_dispatch]
         save_notification(project.id, user_ids, "dispatch_created",
                           f"Dispatch {dn.dn_number} created for {sr_no}",
@@ -224,7 +242,6 @@ def notify_ra_generated(ra, project, pdf_path=None):
 
 
 def notify_material_accepted(progress_entry, project, site_user_name):
-    """Fired when site engineer logs installation — signals material accepted at site."""
     users = User.query.filter(User.is_active == True).all()
     to_emails = [u.email for u in users if u.notify_dispatch and u.email
                  and u.role in ["scm", "accounts", "management"]]
@@ -244,7 +261,6 @@ def notify_material_accepted(progress_entry, project, site_user_name):
 
 
 def notify_invoice_marked(dn, project, accounts_user_name):
-    """Fired when Accounts marks a dispatch as invoiced."""
     users = User.query.filter(User.is_active == True).all()
     to_emails = [u.email for u in users if u.email
                  and u.role in ["scm", "management"]]
@@ -265,7 +281,6 @@ def notify_invoice_marked(dn, project, accounts_user_name):
 
 
 def notify_ra_status_changed(ra, project, new_status, changed_by_name):
-    """Fired when RA bill status changes — submitted / approved / paid."""
     users = User.query.filter(User.is_active == True).all()
     to_emails = [u.email for u in users if u.notify_ra and u.email]
 
