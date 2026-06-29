@@ -82,8 +82,11 @@ export default function Layout() {
 
         {isSite && <>
           <div className="nav-section">Projects</div>
-          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/site" onClick={()=>setSideOpen(false)}>
-            <Icon d={ICONS.factory}/> Site progress
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/installation" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.factory}/> Installation
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/commissioning" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.settings}/> Commissioning
           </NavLink>
         </>}
 

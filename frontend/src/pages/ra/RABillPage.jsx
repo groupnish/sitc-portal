@@ -98,11 +98,35 @@ export default function RABillPage() {
 
           {computed && (
             <div>
+              {computed.period_note && (
+                <div className="alert alert-info" style={{marginBottom:12}}>
+                  Period: {computed.period_note}
+                </div>
+              )}
               <div className="summary-box" style={{marginBottom:16}}>
                 <div className="summary-row"><span>RA bill no.</span><span style={{fontWeight:500}}>#{computed.ra_number}</span></div>
-                <div className="summary-row"><span>Supply value (this bill)</span><span>{fmt(computed.supply_value_this)}</span></div>
-                <div className="summary-row"><span>E&C value (this bill)</span><span>{fmt(computed.ec_value_this)}</span></div>
-                <div className="summary-row"><span style={{fontWeight:500}}>Taxable value</span><span style={{fontWeight:500}}>{fmt(computed.taxable_value)}</span></div>
+                <div style={{padding:'6px 0',borderBottom:'1px solid var(--border)',fontSize:12,color:'var(--text-s)'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
+                    <span style={{textAlign:'left',fontWeight:500}}>Part</span>
+                    <span style={{fontWeight:500}}>Prev bills</span>
+                    <span style={{fontWeight:500,color:'var(--teal)'}}>This bill</span>
+                  </div>
+                </div>
+                <div style={{padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
+                    <span style={{textAlign:'left'}}>Supply (Part 1)</span>
+                    <span style={{color:'var(--text-s)'}}>₹{Number(computed.supply_value_prev).toLocaleString('en-IN')}</span>
+                    <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.supply_value_this).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+                <div style={{padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
+                    <span style={{textAlign:'left'}}>E&C (Part 2)</span>
+                    <span style={{color:'var(--text-s)'}}>₹{Number(computed.ec_value_prev).toLocaleString('en-IN')}</span>
+                    <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.ec_value_this).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+                <div className="summary-row"><span style={{fontWeight:500}}>Taxable value (this bill)</span><span style={{fontWeight:500}}>{fmt(computed.taxable_value)}</span></div>
                 {computed.igst_amount > 0 && <div className="summary-row"><span>IGST {activeProject.igst_rate}%</span><span>{fmt(computed.igst_amount)}</span></div>}
                 {computed.cgst_amount > 0 && <>
                   <div className="summary-row"><span>CGST {activeProject.cgst_rate}%</span><span>{fmt(computed.cgst_amount)}</span></div>

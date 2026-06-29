@@ -7,7 +7,8 @@ import GRNPage from './pages/scm/GRNPage'
 import DispatchPage from './pages/scm/DispatchPage'
 import InvoiceListPage from './pages/accounts/InvoiceListPage'
 import RABillPage from './pages/ra/RABillPage'
-import SiteProgressPage from './pages/site/SiteProgressPage'
+import InstallationPage from './pages/site/InstallationPage'
+import CommissioningPage from './pages/site/CommissioningPage'
 import UsersPage from './pages/admin/UsersPage'
 import ProjectsPage from './pages/admin/ProjectsPage'
 import BOQPage from './pages/admin/BOQPage'
@@ -30,15 +31,16 @@ export default function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="grn"      element={<PrivateRoute roles={['scm','admin']}><GRNPage /></PrivateRoute>} />
-        <Route path="dispatch" element={<PrivateRoute roles={['scm','admin']}><DispatchPage /></PrivateRoute>} />
-        <Route path="invoice"  element={<PrivateRoute roles={['accounts','admin']}><InvoiceListPage /></PrivateRoute>} />
-        <Route path="ra"       element={<PrivateRoute roles={['accounts','admin']}><RABillPage /></PrivateRoute>} />
-        <Route path="site"     element={<PrivateRoute roles={['site','admin']}><SiteProgressPage /></PrivateRoute>} />
-        <Route path="users"    element={<PrivateRoute roles={['admin']}><UsersPage /></PrivateRoute>} />
-        <Route path="projects" element={<PrivateRoute roles={['admin']}><ProjectsPage /></PrivateRoute>} />
-        <Route path="boq"      element={<PrivateRoute roles={['admin']}><BOQPage /></PrivateRoute>} />
-        <Route path="profile"  element={<ProfilePage />} />
+        <Route path="grn"            element={<PrivateRoute roles={['scm']}><GRNPage /></PrivateRoute>} />
+        <Route path="dispatch"       element={<PrivateRoute roles={['scm']}><DispatchPage /></PrivateRoute>} />
+        <Route path="invoice"        element={<PrivateRoute roles={['accounts']}><InvoiceListPage /></PrivateRoute>} />
+        <Route path="ra"             element={<PrivateRoute roles={['accounts']}><RABillPage /></PrivateRoute>} />
+        <Route path="installation"   element={<PrivateRoute roles={['site']}><InstallationPage /></PrivateRoute>} />
+        <Route path="commissioning"  element={<PrivateRoute roles={['site']}><CommissioningPage /></PrivateRoute>} />
+        <Route path="users"          element={<PrivateRoute roles={['admin']}><UsersPage /></PrivateRoute>} />
+        <Route path="projects"       element={<PrivateRoute roles={['admin']}><ProjectsPage /></PrivateRoute>} />
+        <Route path="boq"            element={<PrivateRoute roles={['admin']}><BOQPage /></PrivateRoute>} />
+        <Route path="profile"        element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
