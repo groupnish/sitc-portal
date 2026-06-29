@@ -210,6 +210,18 @@ def create_grn(pid):
 def get_grn(gid):
     return jsonify(GRN.query.get_or_404(gid).to_dict())
 
+@grn_bp.route("/<int:gid>", methods=["DELETE"])
+@jwt_required()
+def delete_grn(gid):
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    grn = GRN.query.get_or_404(gid)
+    db.session.delete(grn)
+    db.session.commit()
+    return jsonify({"message": f"GRN {grn.grn_number} deleted"})
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 dispatch_bp = Blueprint("dispatch", __name__)
