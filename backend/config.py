@@ -13,7 +13,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI     = os.environ.get("DATABASE_URL", "sqlite:///sitc_dev.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    CORS_ORIGINS = [o.strip().rstrip("/") for o in raw.split(",")]
 
     # Gmail SMTP
     MAIL_SERVER   = "smtp.gmail.com"
