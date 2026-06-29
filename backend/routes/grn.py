@@ -200,16 +200,32 @@ def create_grn(pid):
         remarks=data.get("remarks",""),
         created_by=int(get_jwt_identity())
     )
-    db.session.add(grn); db.session.commit()
-    # Refresh from DB to load relationships before serializing
-    db.session.refresh(grn)
-    grn_id = grn.id
+    db.session.add(grn)
+    db.session.commit()
+    # Store values before session expires
+    grn_id     = grn.id
     grn_number = grn.grn_number
-    try: notify_grn_created(grn, project)
-    except Exception as e: print(f"Notify error: {e}")
-    # Re-fetch fresh object to avoid session issues
-    fresh_grn = GRN.query.get(grn_id)
-    return jsonify(fresh_grn.to_dict() if fresh_grn else {"id": grn_id, "grn_number": grn_number, "status": "received"}), 201
+    grn_date   = grn.grn_date.isoformat()
+    qty        = float(grn.qty_received)
+    # Send email notification
+    try:
+        notify_grn_created(grn, project)
+    except Exception as e:
+        print(f"Notify error: {e}")
+    # Return simple safe response — no relationship access
+    return jsonify({
+        "id": grn_id,
+        "grn_number": grn_number,
+        "grn_date": grn_date,
+        "qty_received": qty,
+        "boq_item_id": data["boq_item_id"],
+        "project_id": pid,
+        "status": "received",
+        "vendor_name": data.get("vendor_name",""),
+        "challan_no": data.get("challan_no",""),
+        "vehicle_no": data.get("vehicle_no",""),
+        "remarks": data.get("remarks",""),
+    }), 201
 
 @grn_bp.route("/<int:gid>", methods=["GET"])
 @jwt_required()
@@ -260,13 +276,33 @@ def create_dispatch(pid):
         remarks=data.get("remarks",""),
         created_by=int(get_jwt_identity())
     )
-    db.session.add(dn); db.session.commit()
-    dn_id = dn.id
-    dn_number = dn.dn_number
-    try: notify_dispatch_created(dn, project)
-    except Exception as e: print(f"Notify error: {e}")
-    fresh_dn = DispatchNote.query.get(dn_id)
-    return jsonify(fresh_dn.to_dict() if fresh_dn else {"id": dn_id, "dn_number": dn_number, "invoice_status": "pending"}), 201
+    db.session.add(dn)
+    db.session.commit()
+    # Store values before session expires
+    dn_id      = dn.id
+    dn_number  = dn.dn_number
+    dn_date    = dn.dispatch_date.isoformat()
+    qty        = float(dn.qty_dispatched)
+    # Send email notification
+    try:
+        notify_dispatch_created(dn, project)
+    except Exception as e:
+        print(f"Notify error: {e}")
+    # Return simple safe response — no relationship access
+    return jsonify({
+        "id": dn_id,
+        "dn_number": dn_number,
+        "dispatch_date": dn_date,
+        "qty_dispatched": qty,
+        "boq_item_id": data["boq_item_id"],
+        "project_id": pid,
+        "invoice_status": "pending",
+        "site_destination": data.get("site_destination",""),
+        "vehicle_no": data.get("vehicle_no",""),
+        "driver_name": data.get("driver_name",""),
+        "lr_number": data.get("lr_number",""),
+        "remarks": data.get("remarks",""),
+    }), 201
 
 @dispatch_bp.route("/pending-invoice/<int:pid>", methods=["GET"])
 @jwt_required()
@@ -470,7 +506,19 @@ def save_ra(pid):
 
     project.current_ra_no = data["ra_number"] + 1
     db.session.commit()
-    return jsonify(ra.to_dict()), 201
+    # Store values before session expires
+    ra_id     = ra.id
+    ra_number = ra.ra_number
+    inv_no    = ra.invoice_no
+    net       = float(ra.net_payable)
+    return jsonify({
+        "id": ra_id,
+        "ra_number": ra_number,
+        "invoice_no": inv_no,
+        "net_payable": net,
+        "status": "draft",
+        "project_id": pid,
+    }), 201
 
 @ra_bp.route("/<int:rid>/export/excel", methods=["GET"])
 @jwt_required()
@@ -503,15 +551,34 @@ def export_pdf(rid):
 def update_status(rid):
     ra = RABill.query.get_or_404(rid)
     data = request.get_json()
-    ra.status = data.get("status", ra.status)
+    new_status = data.get("status", ra.status)
+    ra.status  = new_status
     if data.get("irn_number"): ra.irn_number = data["irn_number"]
-    if ra.status == "submitted": ra.submitted_at = datetime.utcnow()
+    if new_status == "submitted": ra.submitted_at = datetime.utcnow()
     db.session.commit()
-    if ra.status == "submitted":
-        project = Project.query.get(ra.project_id)
+    # Store values before session expires
+    ra_id     = ra.id
+    ra_number = ra.ra_number
+    inv_no    = ra.invoice_no
+    net       = float(ra.net_payable)
+    pid       = ra.project_id
+    user      = current_user()
+    project   = Project.query.get(pid)
+    # Fire email for all status changes
+    if new_status == "submitted":
         try: notify_ra_generated(ra, project)
         except Exception as e: print(f"Notify error: {e}")
-    return jsonify(ra.to_dict())
+    try: notify_ra_status_changed(ra, project, new_status, user.name if user else "System")
+    except Exception as e: print(f"Notify error: {e}")
+    # Return safe response
+    return jsonify({
+        "id": ra_id,
+        "ra_number": ra_number,
+        "invoice_no": inv_no,
+        "net_payable": net,
+        "status": new_status,
+        "project_id": pid,
+    })
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
