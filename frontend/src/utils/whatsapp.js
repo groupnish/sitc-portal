@@ -1,14 +1,12 @@
-export function isMobile() {
-  return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-}
+// Always use wa.me — works on all devices:
+// Mobile: opens WhatsApp app directly
+// Desktop: opens WhatsApp Web automatically
+// No device detection needed
 
 export function openWhatsApp(phone, message) {
-  const clean  = phone.replace(/[^0-9]/g, '')
+  const clean   = phone.replace(/[^0-9]/g, '')
   const encoded = encodeURIComponent(message)
-  const url = isMobile()
-    ? `https://wa.me/${clean}?text=${encoded}`
-    : `https://web.whatsapp.com/send?phone=${clean}&text=${encoded}`
-  window.open(url, '_blank')
+  window.open(`https://wa.me/${clean}?text=${encoded}`, '_blank')
 }
 
 export function grnWhatsAppMsg(grn, project) {
