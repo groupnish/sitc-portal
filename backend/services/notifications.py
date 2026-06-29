@@ -76,56 +76,75 @@ def save_notification(project_id, user_ids, event_type, message, ref_id=None, re
 # ── Event-specific helpers ────────────────────────────────────────────────────
 
 def notify_grn_created(grn, project):
-    roles = []
-    users = User.query.filter(User.is_active == True).all()
-    to_emails = [u.email for u in users if u.notify_grn and u.email and u.role in ["accounts", "site", "management"]]
+    try:
+        from models.models import BOQItem
+        boq = BOQItem.query.get(grn.boq_item_id)
+        sr_no = boq.sr_no if boq else "—"
+        desc  = boq.description[:120] if boq else "—"
+        unit  = boq.unit if boq else ""
 
-    subject = f"[{project.code}] GRN {grn.grn_number} created — {grn.boq_item.sr_no}"
-    html = f"""
-    <h3>Material Inward — GRN Created</h3>
-    <p><b>Project:</b> {project.name}</p>
-    <p><b>GRN No:</b> {grn.grn_number}</p>
-    <p><b>Date:</b> {grn.grn_date}</p>
-    <p><b>BOQ Item:</b> {grn.boq_item.sr_no} — {grn.boq_item.description[:120]}</p>
-    <p><b>Qty Received:</b> {grn.qty_received} {grn.boq_item.unit}</p>
-    <p><b>Vendor:</b> {grn.vendor_name}</p>
-    <p><b>Challan No:</b> {grn.challan_no}</p>
-    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
-    """
-    if to_emails:
-        send_email(to_emails, subject, html)
+        users = User.query.filter(User.is_active == True).all()
+        to_emails = [u.email for u in users if u.notify_grn and u.email and u.role in ["accounts", "site", "management"]]
 
-    user_ids = [u.id for u in users if u.notify_grn and u.role in ["accounts", "site", "management"]]
-    save_notification(project.id, user_ids, "grn_created",
-                      f"GRN {grn.grn_number} created for {grn.boq_item.sr_no}",
-                      ref_id=grn.id, ref_type="grn")
+        subject = f"[{project.code}] GRN {grn.grn_number} created — {sr_no}"
+        html = f"""
+        <h3>Material Inward — GRN Created</h3>
+        <p><b>Project:</b> {project.name}</p>
+        <p><b>GRN No:</b> {grn.grn_number}</p>
+        <p><b>Date:</b> {grn.grn_date}</p>
+        <p><b>BOQ Item:</b> {sr_no} — {desc}</p>
+        <p><b>Qty Received:</b> {grn.qty_received} {unit}</p>
+        <p><b>Vendor:</b> {grn.vendor_name}</p>
+        <p><b>Challan No:</b> {grn.challan_no}</p>
+        <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
+        """
+        if to_emails:
+            send_email(to_emails, subject, html)
+
+        user_ids = [u.id for u in users if u.notify_grn and u.role in ["accounts", "site", "management"]]
+        save_notification(project.id, user_ids, "grn_created",
+                          f"GRN {grn.grn_number} created for {sr_no}",
+                          ref_id=grn.id, ref_type="grn")
+    except Exception as e:
+        current_app.logger.error(f"notify_grn_created error: {e}")
 
 
 def notify_dispatch_created(dn, project):
-    users = User.query.filter(User.is_active == True).all()
-    to_emails = [u.email for u in users if u.notify_dispatch and u.email and u.role in ["accounts", "site", "management"]]
+    try:
+        from models.models import BOQItem
+        boq = BOQItem.query.get(dn.boq_item_id)
+        sr_no = boq.sr_no if boq else "—"
+        desc  = boq.description[:120] if boq else "—"
+        unit  = boq.unit if boq else ""
+        rate  = float(boq.rate) if boq else 0
+        amt   = rate * float(dn.qty_dispatched)
 
-    subject = f"[{project.code}] Dispatch {dn.dn_number} — {dn.boq_item.sr_no} to {dn.site_destination}"
-    html = f"""
-    <h3>Material Outward — Dispatch Note Created</h3>
-    <p><b>Project:</b> {project.name}</p>
-    <p><b>DN No:</b> {dn.dn_number}</p>
-    <p><b>Date:</b> {dn.dispatch_date}</p>
-    <p><b>BOQ Item:</b> {dn.boq_item.sr_no} — {dn.boq_item.description[:120]}</p>
-    <p><b>Qty Dispatched:</b> {dn.qty_dispatched} {dn.boq_item.unit}</p>
-    <p><b>Site Destination:</b> {dn.site_destination}</p>
-    <p><b>Vehicle No:</b> {dn.vehicle_no}</p>
-    <p><b>Driver:</b> {dn.driver_name}</p>
-    <p><b>Amount (excl. GST):</b> ₹{float(dn.boq_item.rate * dn.qty_dispatched):,.2f}</p>
-    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
-    """
-    if to_emails:
-        send_email(to_emails, subject, html)
+        users = User.query.filter(User.is_active == True).all()
+        to_emails = [u.email for u in users if u.notify_dispatch and u.email and u.role in ["accounts", "site", "management"]]
 
-    user_ids = [u.id for u in users if u.notify_dispatch and u.role in ["accounts", "site", "management"]]
-    save_notification(project.id, user_ids, "dispatch_created",
-                      f"Dispatch {dn.dn_number} created for {dn.boq_item.sr_no}",
-                      ref_id=dn.id, ref_type="dispatch")
+        subject = f"[{project.code}] Dispatch {dn.dn_number} — {sr_no} to {dn.site_destination}"
+        html = f"""
+        <h3>Material Outward — Dispatch Note Created</h3>
+        <p><b>Project:</b> {project.name}</p>
+        <p><b>DN No:</b> {dn.dn_number}</p>
+        <p><b>Date:</b> {dn.dispatch_date}</p>
+        <p><b>BOQ Item:</b> {sr_no} — {desc}</p>
+        <p><b>Qty Dispatched:</b> {dn.qty_dispatched} {unit}</p>
+        <p><b>Site Destination:</b> {dn.site_destination}</p>
+        <p><b>Vehicle No:</b> {dn.vehicle_no}</p>
+        <p><b>Driver:</b> {dn.driver_name}</p>
+        <p><b>Amount (excl. GST):</b> ₹{amt:,.2f}</p>
+        <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
+        """
+        if to_emails:
+            send_email(to_emails, subject, html)
+
+        user_ids = [u.id for u in users if u.notify_dispatch and u.role in ["accounts", "site", "management"]]
+        save_notification(project.id, user_ids, "dispatch_created",
+                          f"Dispatch {dn.dn_number} created for {sr_no}",
+                          ref_id=dn.id, ref_type="dispatch")
+    except Exception as e:
+        current_app.logger.error(f"notify_dispatch_created error: {e}")
 
 
 def notify_progress_updated(project, updated_by_name, items_count):

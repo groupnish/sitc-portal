@@ -171,18 +171,28 @@ class GRN(db.Model):
     creator      = db.relationship("User", backref="grns_created")
 
     def to_dict(self):
+        try:
+            boq_sr   = self.boq_item.sr_no if self.boq_item else ""
+            boq_desc = self.boq_item.description[:80] if self.boq_item else ""
+            boq_unit = self.boq_item.unit if self.boq_item else ""
+        except Exception:
+            boq_sr = boq_desc = boq_unit = ""
+        try:
+            creator_name = self.creator.name if self.creator else ""
+        except Exception:
+            creator_name = ""
         return {
             "id": self.id, "project_id": self.project_id,
             "grn_number": self.grn_number,
             "grn_date": self.grn_date.isoformat(),
             "boq_item_id": self.boq_item_id,
-            "boq_item_sr": self.boq_item.sr_no if self.boq_item else "",
-            "boq_item_desc": self.boq_item.description[:80] if self.boq_item else "",
+            "boq_item_sr": boq_sr,
+            "boq_item_desc": boq_desc,
             "qty_received": float(self.qty_received),
-            "unit": self.boq_item.unit if self.boq_item else "",
+            "unit": boq_unit,
             "vendor_name": self.vendor_name, "challan_no": self.challan_no,
             "vehicle_no": self.vehicle_no, "remarks": self.remarks,
-            "created_by_name": self.creator.name if self.creator else "",
+            "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(), "status": self.status,
         }
 
@@ -209,21 +219,33 @@ class DispatchNote(db.Model):
     creator       = db.relationship("User", backref="dispatches_created")
 
     def to_dict(self):
+        try:
+            boq_sr   = self.boq_item.sr_no if self.boq_item else ""
+            boq_desc = self.boq_item.description[:80] if self.boq_item else ""
+            boq_rate = float(self.boq_item.rate) if self.boq_item else 0
+            boq_unit = self.boq_item.unit if self.boq_item else ""
+            amount   = boq_rate * float(self.qty_dispatched)
+        except Exception:
+            boq_sr = boq_desc = boq_unit = ""; boq_rate = amount = 0
+        try:
+            creator_name = self.creator.name if self.creator else ""
+        except Exception:
+            creator_name = ""
         return {
             "id": self.id, "project_id": self.project_id,
             "dn_number": self.dn_number,
             "dispatch_date": self.dispatch_date.isoformat(),
             "boq_item_id": self.boq_item_id,
-            "boq_item_sr": self.boq_item.sr_no if self.boq_item else "",
-            "boq_item_desc": self.boq_item.description[:80] if self.boq_item else "",
-            "boq_item_rate": float(self.boq_item.rate) if self.boq_item else 0,
+            "boq_item_sr": boq_sr,
+            "boq_item_desc": boq_desc,
+            "boq_item_rate": boq_rate,
             "qty_dispatched": float(self.qty_dispatched),
-            "unit": self.boq_item.unit if self.boq_item else "",
-            "amount": float(self.boq_item.rate * self.qty_dispatched) if self.boq_item else 0,
+            "unit": boq_unit,
+            "amount": amount,
             "site_destination": self.site_destination,
             "vehicle_no": self.vehicle_no, "driver_name": self.driver_name,
             "lr_number": self.lr_number, "remarks": self.remarks,
-            "created_by_name": self.creator.name if self.creator else "",
+            "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(),
             "invoice_status": self.invoice_status,
         }
