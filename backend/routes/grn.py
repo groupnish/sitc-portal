@@ -304,7 +304,7 @@ def create_dispatch(pid):
         "remarks": data.get("remarks",""),
     }), 201
 
-@dispatch_bp.route("/<int:did>", methods=["DELETE"])
+@dispatch_bp.route("/delete/<int:did>", methods=["DELETE"])
 @jwt_required()
 def delete_dispatch(did):
     claims = get_jwt()

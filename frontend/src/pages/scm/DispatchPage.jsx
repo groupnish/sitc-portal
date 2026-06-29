@@ -46,7 +46,7 @@ export default function DispatchPage() {
   const deleteDispatch = async (id, dn_number) => {
     if (!window.confirm(`Delete ${dn_number}? This cannot be undone.`)) return
     try {
-      await api.delete(`/dispatch/${id}`)
+      await api.delete(`/dispatch/delete/${id}`)
       toast.success(`${dn_number} deleted`)
       loadDNs()
     } catch (e) {
