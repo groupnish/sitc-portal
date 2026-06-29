@@ -1,77 +1,62 @@
-import smtplib
-import ssl
 import threading
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+import urllib.request
+import urllib.error
+import json
 from flask import current_app
 from models.models import User, Notification, db
 import urllib.parse
 
 
-def _send_email_sync(mail_server, mail_port, mail_user, mail_pass,
-                     mail_from, to_emails, subject, html_body, attachments):
-    """Runs in background thread — never blocks the request."""
-    print(f"[EMAIL DEBUG] _send_email_sync started")
-    print(f"[EMAIL DEBUG] Server: {mail_server}:{mail_port}")
-    print(f"[EMAIL DEBUG] From: {mail_from} → To: {to_emails}")
+def _send_email_brevo(api_key, mail_from, to_emails, subject, html_body):
+    """Runs in background thread — sends via Brevo HTTPS API."""
+    print(f"[EMAIL] Sending via Brevo to: {to_emails}")
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = mail_from
-        msg["To"]      = ", ".join(to_emails)
-        msg.attach(MIMEText(html_body, "html"))
-        if attachments:
-            for path, filename in attachments:
-                with open(path, "rb") as f:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-                msg.attach(part)
-
-        # Use SMTP_SSL on port 465 — more reliable on restricted hosting
-        print(f"[EMAIL DEBUG] Creating SSL context...")
-        context = ssl.create_default_context()
-        print(f"[EMAIL DEBUG] Connecting via SMTP_SSL port 465...")
-        with smtplib.SMTP_SSL(mail_server, 465, context=context, timeout=25) as server:
-            print(f"[EMAIL DEBUG] Connected OK")
-            server.login(mail_user, mail_pass)
-            print(f"[EMAIL DEBUG] Login OK")
-            server.sendmail(mail_from, to_emails, msg.as_string())
-            print(f"[EMAIL DEBUG] sendmail OK")
-        print(f"[EMAIL DEBUG] ✅ Email sent successfully to: {to_emails}")
+        payload = {
+            "sender": {"name": "Project Tracker", "email": mail_from},
+            "to": [{"email": e} for e in to_emails],
+            "subject": subject,
+            "htmlContent": html_body
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=data,
+            headers={
+                "accept": "application/json",
+                "api-key": api_key,
+                "content-type": "application/json"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            result = json.loads(resp.read().decode())
+            print(f"[EMAIL] ✅ Sent successfully — messageId: {result.get('messageId')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"[EMAIL] ❌ Brevo HTTP error {e.code}: {body}")
     except Exception as e:
-        print(f"[EMAIL DEBUG] ❌ FAILED — {type(e).__name__}: {e}")
+        print(f"[EMAIL] ❌ Failed — {type(e).__name__}: {e}")
 
 
 def send_email(to_emails, subject, html_body, attachments=None):
     cfg = current_app.config
-    mail_user = cfg.get("MAIL_USERNAME")
-    mail_pass = cfg.get("MAIL_PASSWORD")
+    api_key  = cfg.get("BREVO_API_KEY")
+    mail_from = cfg.get("MAIL_FROM") or cfg.get("MAIL_USERNAME")
 
-    print(f"[EMAIL DEBUG] send_email called — to: {to_emails}")
-    print(f"[EMAIL DEBUG] MAIL_USERNAME: '{mail_user}' | MAIL_PASSWORD length: {len(mail_pass) if mail_pass else 0}")
-
-    if not mail_user or not mail_pass:
-        print("[EMAIL DEBUG] Skipping — SMTP credentials missing")
+    if not api_key:
+        print("[EMAIL] Skipping — BREVO_API_KEY not configured")
         return False
     if not to_emails:
-        print("[EMAIL DEBUG] Skipping — to_emails is empty")
+        print("[EMAIL] Skipping — no recipients")
         return False
 
     t = threading.Thread(
-        target=_send_email_sync,
-        args=(
-            cfg["MAIL_SERVER"], cfg["MAIL_PORT"],
-            mail_user, mail_pass,
-            cfg["MAIL_FROM"], to_emails, subject, html_body, attachments
-        ),
+        target=_send_email_brevo,
+        args=(api_key, mail_from, to_emails, subject, html_body),
         daemon=True
     )
     t.start()
-    print(f"[EMAIL DEBUG] Background thread started")
+    print(f"[EMAIL] Background thread started for {len(to_emails)} recipient(s)")
     return True
 
 
@@ -119,9 +104,7 @@ def notify_grn_created(grn, project):
         unit  = boq.unit if boq else ""
 
         users = User.query.filter(User.is_active == True).all()
-        print(f"[EMAIL DEBUG] notify_grn_created — active users notify_grn flags: {[(u.email, u.notify_grn) for u in users]}")
         to_emails = [u.email for u in users if u.notify_grn and u.email]
-        print(f"[EMAIL DEBUG] to_emails after filter: {to_emails}")
 
         subject = f"[{project.code}] GRN {grn.grn_number} created — {sr_no}"
         html = f"""
