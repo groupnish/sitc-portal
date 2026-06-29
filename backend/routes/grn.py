@@ -304,6 +304,18 @@ def create_dispatch(pid):
         "remarks": data.get("remarks",""),
     }), 201
 
+@dispatch_bp.route("/<int:did>", methods=["DELETE"])
+@jwt_required()
+def delete_dispatch(did):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    dn = DispatchNote.query.get_or_404(did)
+    dn_number = dn.dn_number
+    db.session.delete(dn)
+    db.session.commit()
+    return jsonify({"message": f"Dispatch {dn_number} deleted"})
+
 @dispatch_bp.route("/pending-invoice/<int:pid>", methods=["GET"])
 @jwt_required()
 def pending_invoice(pid):

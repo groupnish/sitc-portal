@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { dispatch, boq, users } from '../../services/api'
+import api from '../../services/api'
 import { openWhatsApp, dispatchWhatsAppMsg } from '../../utils/whatsapp'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
@@ -20,7 +21,7 @@ const EMPTY_FORM = {
 }
 
 export default function DispatchPage() {
-  const { activeProject } = useAuth()
+  const { activeProject, isAdmin } = useAuth()
   const [boqItems, setBoqItems]     = useState([])
   const [dnList, setDnList]         = useState([])
   const [contacts, setContacts]     = useState([])
@@ -41,6 +42,17 @@ export default function DispatchPage() {
       .then(r => setDnList(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
+  }
+
+  const deleteDispatch = async (id, dn_number) => {
+    if (!window.confirm(`Delete ${dn_number}? This cannot be undone.`)) return
+    try {
+      await api.delete(`/dispatch/${id}`)
+      toast.success(`${dn_number} deleted`)
+      loadDNs()
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Delete failed')
+    }
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -170,9 +182,9 @@ export default function DispatchPage() {
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={8} className="empty">Loading...</td></tr>}
+              {loading && <tr><td colSpan={isAdmin ? 9 : 8} className="empty">Loading...</td></tr>}
               {!loading && dnList.length === 0 && (
-                <tr><td colSpan={8} className="empty">No dispatches yet.</td></tr>
+                <tr><td colSpan={isAdmin ? 9 : 8} className="empty">No dispatches yet.</td></tr>
               )}
               {dnList.map(d => (
                 <tr key={d.id}>
@@ -206,6 +218,14 @@ export default function DispatchPage() {
                       </select>
                     )}
                   </td>
+                  {isAdmin && (
+                    <td>
+                      <button className="btn btn-sm btn-danger"
+                        onClick={() => deleteDispatch(d.id, d.dn_number)}>
+                        Delete
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
