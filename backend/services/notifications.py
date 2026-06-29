@@ -181,3 +181,69 @@ def notify_ra_generated(ra, project, pdf_path=None):
     save_notification(project.id, user_ids, "ra_generated",
                       f"RA Bill #{ra.ra_number} generated — ₹{float(ra.net_payable):,.0f}",
                       ref_id=ra.id, ref_type="ra_bill")
+
+
+def notify_material_accepted(progress_entry, project, site_user_name):
+    """Fired when site engineer logs installation — signals material accepted at site."""
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_dispatch and u.email
+                 and u.role in ["scm", "accounts", "management"]]
+
+    subject = f"[{project.code}] Material accepted at site — {progress_entry.boq_item.sr_no}"
+    html = f"""
+    <h3>Material Accepted at Site</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>BOQ Item:</b> {progress_entry.boq_item.sr_no} — {progress_entry.boq_item.description[:120]}</p>
+    <p><b>Qty installed this entry:</b> {progress_entry.qty_installed} {progress_entry.boq_item.unit}</p>
+    <p><b>Site engineer:</b> {site_user_name}</p>
+    <p><b>Date:</b> {progress_entry.progress_date}</p>
+    <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)
+
+
+def notify_invoice_marked(dn, project, accounts_user_name):
+    """Fired when Accounts marks a dispatch as invoiced."""
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.email
+                 and u.role in ["scm", "management"]]
+
+    subject = f"[{project.code}] Supply invoice raised — {dn.dn_number}"
+    html = f"""
+    <h3>Supply Invoice Raised</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>Dispatch note:</b> {dn.dn_number}</p>
+    <p><b>BOQ item:</b> {dn.boq_item.sr_no} — {dn.boq_item.description[:120]}</p>
+    <p><b>Qty:</b> {dn.qty_dispatched} {dn.boq_item.unit}</p>
+    <p><b>Amount (excl. GST):</b> ₹{float(dn.boq_item.rate * dn.qty_dispatched):,.2f}</p>
+    <p><b>Marked by:</b> {accounts_user_name}</p>
+    <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)
+
+
+def notify_ra_status_changed(ra, project, new_status, changed_by_name):
+    """Fired when RA bill status changes — submitted / approved / paid."""
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_ra and u.email]
+
+    status_labels = {
+        'submitted': 'RA Bill Submitted for Approval',
+        'approved':  'RA Bill Approved',
+        'paid':      'RA Bill Payment Received',
+    }
+    subject = f"[{project.code}] {status_labels.get(new_status, 'RA Bill Updated')} — RA #{ra.ra_number}"
+    html = f"""
+    <h3>{status_labels.get(new_status, 'RA Bill Status Changed')}</h3>
+    <p><b>Project:</b> {project.name}</p>
+    <p><b>RA Bill No:</b> {ra.ra_number}</p>
+    <p><b>Invoice No:</b> {ra.invoice_no}</p>
+    <p><b>Net payable:</b> ₹{float(ra.net_payable):,.2f}</p>
+    <p><b>New status:</b> {new_status.upper()}</p>
+    <p><b>Updated by:</b> {changed_by_name}</p>
+    <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
+    """
+    if to_emails:
+        send_email(to_emails, subject, html)

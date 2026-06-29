@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -11,6 +12,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter basename="/sitc-portal">
       <AuthProvider>
         <App />
+        <PWAInstallPrompt />
         <Toaster position="top-right" toastOptions={{ duration: 3000, style: { fontSize: '13px' } }} />
       </AuthProvider>
     </BrowserRouter>
