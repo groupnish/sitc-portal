@@ -9,7 +9,13 @@ def create_app():
     app.config.from_object(Config)
 
     db.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+    CORS(app, resources={r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }})
+
     JWTManager(app)
 
     from routes.auth import auth_bp

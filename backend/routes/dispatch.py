@@ -252,6 +252,18 @@ def pending_invoice(pid):
     dns = DispatchNote.query.filter_by(project_id=pid, invoice_status="pending").all()
     return jsonify([d.to_dict() for d in dns])
 
+@dispatch_bp.route("/delete/<int:did>", methods=["DELETE"])
+@jwt_required()
+def delete_dispatch(did):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    dn = DispatchNote.query.get_or_404(did)
+    dn_number = dn.dn_number
+    db.session.delete(dn)
+    db.session.commit()
+    return jsonify({"message": f"Dispatch {dn_number} deleted"})
+
 @dispatch_bp.route("/<int:did>/mark-invoiced", methods=["PUT"])
 @jwt_required()
 def mark_invoiced(did):
