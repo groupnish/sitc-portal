@@ -201,9 +201,15 @@ def create_grn(pid):
         created_by=int(get_jwt_identity())
     )
     db.session.add(grn); db.session.commit()
+    # Refresh from DB to load relationships before serializing
+    db.session.refresh(grn)
+    grn_id = grn.id
+    grn_number = grn.grn_number
     try: notify_grn_created(grn, project)
     except Exception as e: print(f"Notify error: {e}")
-    return jsonify(grn.to_dict()), 201
+    # Re-fetch fresh object to avoid session issues
+    fresh_grn = GRN.query.get(grn_id)
+    return jsonify(fresh_grn.to_dict() if fresh_grn else {"id": grn_id, "grn_number": grn_number, "status": "received"}), 201
 
 @grn_bp.route("/<int:gid>", methods=["GET"])
 @jwt_required()
@@ -255,9 +261,12 @@ def create_dispatch(pid):
         created_by=int(get_jwt_identity())
     )
     db.session.add(dn); db.session.commit()
+    dn_id = dn.id
+    dn_number = dn.dn_number
     try: notify_dispatch_created(dn, project)
     except Exception as e: print(f"Notify error: {e}")
-    return jsonify(dn.to_dict()), 201
+    fresh_dn = DispatchNote.query.get(dn_id)
+    return jsonify(fresh_dn.to_dict() if fresh_dn else {"id": dn_id, "dn_number": dn_number, "invoice_status": "pending"}), 201
 
 @dispatch_bp.route("/pending-invoice/<int:pid>", methods=["GET"])
 @jwt_required()
