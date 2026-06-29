@@ -101,7 +101,8 @@ def notify_grn_created(grn, project):
         unit  = boq.unit if boq else ""
 
         users = User.query.filter(User.is_active == True).all()
-        to_emails = [u.email for u in users if u.notify_grn and u.email and u.role in ["accounts", "site", "management"]]
+        # FIX: notify_grn flag is the sole filter — no role restriction
+        to_emails = [u.email for u in users if u.notify_grn and u.email]
 
         subject = f"[{project.code}] GRN {grn.grn_number} created — {sr_no}"
         html = f"""
@@ -118,7 +119,8 @@ def notify_grn_created(grn, project):
         if to_emails:
             send_email(to_emails, subject, html)
 
-        user_ids = [u.id for u in users if u.notify_grn and u.role in ["accounts", "site", "management"]]
+        # FIX: same — no role restriction on in-app notifications
+        user_ids = [u.id for u in users if u.notify_grn]
         save_notification(project.id, user_ids, "grn_created",
                           f"GRN {grn.grn_number} created for {sr_no}",
                           ref_id=grn.id, ref_type="grn")
@@ -137,7 +139,8 @@ def notify_dispatch_created(dn, project):
         amt   = rate * float(dn.qty_dispatched)
 
         users = User.query.filter(User.is_active == True).all()
-        to_emails = [u.email for u in users if u.notify_dispatch and u.email and u.role in ["accounts", "site", "management"]]
+        # FIX: notify_dispatch flag is the sole filter — no role restriction
+        to_emails = [u.email for u in users if u.notify_dispatch and u.email]
 
         subject = f"[{project.code}] Dispatch {dn.dn_number} — {sr_no} to {dn.site_destination}"
         html = f"""
@@ -156,7 +159,8 @@ def notify_dispatch_created(dn, project):
         if to_emails:
             send_email(to_emails, subject, html)
 
-        user_ids = [u.id for u in users if u.notify_dispatch and u.role in ["accounts", "site", "management"]]
+        # FIX: same — no role restriction on in-app notifications
+        user_ids = [u.id for u in users if u.notify_dispatch]
         save_notification(project.id, user_ids, "dispatch_created",
                           f"Dispatch {dn.dn_number} created for {sr_no}",
                           ref_id=dn.id, ref_type="dispatch")
@@ -166,7 +170,7 @@ def notify_dispatch_created(dn, project):
 
 def notify_progress_updated(project, updated_by_name, items_count):
     users = User.query.filter(User.is_active == True).all()
-    to_emails = [u.email for u in users if u.notify_progress and u.email and u.role in ["accounts", "management"]]
+    to_emails = [u.email for u in users if u.notify_progress and u.email]
 
     subject = f"[{project.code}] Site progress updated — {items_count} item(s)"
     html = f"""
@@ -175,12 +179,12 @@ def notify_progress_updated(project, updated_by_name, items_count):
     <p><b>Updated by:</b> {updated_by_name}</p>
     <p><b>Items updated:</b> {items_count}</p>
     <p>Please review site progress and prepare RA bill if milestone is reached.</p>
-    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
     """
     if to_emails:
         send_email(to_emails, subject, html)
 
-    user_ids = [u.id for u in users if u.notify_progress and u.role in ["accounts", "management"]]
+    user_ids = [u.id for u in users if u.notify_progress]
     save_notification(project.id, user_ids, "progress_updated",
                       f"Site progress updated for {project.code} — {items_count} items",
                       ref_type="progress")
@@ -207,7 +211,7 @@ def notify_ra_generated(ra, project, pdf_path=None):
       <tr><td><b>Advance recovery</b></td><td>₹{float(ra.advance_recovery):,.2f}</td></tr>
       <tr style="background:#e8f5ee"><td><b>Net payable</b></td><td><b>₹{float(ra.net_payable):,.2f}</b></td></tr>
     </table>
-    <hr><p style="color:#888;font-size:12px">SITC Project Portal — automated notification</p>
+    <hr><p style="color:#888;font-size:12px">Project Tracker — Group Nish</p>
     """
     attachments = [(pdf_path, f"RA_{ra.ra_number}_{ra.invoice_no}.pdf")] if pdf_path else None
     if to_emails:
