@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models.models import (Project, BOQItem, User, GRN, DispatchNote,
                             SiteProgress, RABill, RABillLine, Notification, db)
 from services.notifications import (notify_grn_created, notify_dispatch_created,
-                                     notify_progress_updated, notify_ra_generated)
+                                     notify_progress_updated, notify_ra_generated,
+                                     notify_invoice_marked, notify_ra_status_changed)
 from services.export import generate_ra_excel, generate_ra_pdf
 from datetime import date, datetime
 from decimal import Decimal
@@ -208,6 +209,18 @@ def create_grn(pid):
 @jwt_required()
 def get_grn(gid):
     return jsonify(GRN.query.get_or_404(gid).to_dict())
+
+@grn_bp.route("/<int:gid>", methods=["DELETE"])
+@jwt_required()
+def delete_grn(gid):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    grn = GRN.query.get_or_404(gid)
+    grn_number = grn.grn_number
+    db.session.delete(grn)
+    db.session.commit()
+    return jsonify({"message": f"GRN {grn_number} deleted"})
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
