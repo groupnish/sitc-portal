@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from extensions import db
@@ -9,9 +9,7 @@ def create_app():
     app.config.from_object(Config)
 
     db.init_app(app)
-    CORS(app, origins=app.config["CORS_ORIGINS"], supports_credentials=True,
-     allow_headers=["Content-Type", "Authorization"],
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
     JWTManager(app)
 
     from routes.auth import auth_bp
