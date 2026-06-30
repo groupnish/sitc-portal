@@ -70,6 +70,8 @@ export const dispatch = {
 export const site = {
   list:   pid => api.get(`/site/${pid}`),
   update: (pid,d) => api.post(`/site/${pid}/update`, d),
+  entries:    (pid,boqItemId) => api.get(`/site/entries/${pid}/${boqItemId}`),
+  editEntry:  (id,d) => api.put(`/site/entry/${id}`, d),
 }
 export const ra = {
   list:    pid => api.get(`/ra/${pid}`),

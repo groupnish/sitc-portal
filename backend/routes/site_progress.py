@@ -312,6 +312,33 @@ def update_progress(pid):
         except Exception as e: print(f"Notify error: {e}")
     return jsonify({"message": f"{count} items updated"})
 
+@site_bp.route("/entry/<int:eid>", methods=["PUT"])
+@jwt_required()
+def update_progress_entry(eid):
+    """Admin-only: correct a previously logged site progress entry."""
+    err = admin_required()
+    if err: return err
+    entry = SiteProgress.query.get_or_404(eid)
+    data = request.get_json()
+    if "qty_installed" in data:
+        entry.qty_installed = data["qty_installed"]
+    if "qty_commissioned" in data:
+        entry.qty_commissioned = data["qty_commissioned"]
+    if "progress_date" in data and data["progress_date"]:
+        entry.progress_date = date.fromisoformat(data["progress_date"])
+    if "notes" in data:
+        entry.notes = data["notes"]
+    db.session.commit()
+    return jsonify(entry.to_dict())
+
+@site_bp.route("/entries/<int:pid>/<int:boq_item_id>", methods=["GET"])
+@jwt_required()
+def list_progress_entries(pid, boq_item_id):
+    """Full entry history for one BOQ item (used by admin edit UI)."""
+    entries = SiteProgress.query.filter_by(project_id=pid, boq_item_id=boq_item_id)\
+                                .order_by(SiteProgress.progress_date.desc(), SiteProgress.id.desc()).all()
+    return jsonify([e.to_dict() for e in entries])
+
 # ── RA Bill ───────────────────────────────────────────────────────────────────
 
 ra_bp = Blueprint("ra", __name__)

@@ -7,13 +7,22 @@ import toast from 'react-hot-toast'
 const today = () => new Date().toISOString().split('T')[0]
 
 export default function CommissioningPage() {
-  const { activeProject } = useAuth()
+  const { activeProject, user } = useAuth()
   const [items, setItems]     = useState([])
   const [current, setCurrent] = useState({})
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(false)
   const [filter, setFilter]   = useState('all')
   const [progDate, setProgDate] = useState(today())
+
+  // Admin edit-entries state
+  const isAdmin = user?.role === 'admin'
+  const [editItem, setEditItem]     = useState(null)
+  const [entries, setEntries]       = useState([])
+  const [entriesLoading, setEntriesLoading] = useState(false)
+  const [editingEntry, setEditingEntry] = useState(null)
+  const [editForm, setEditForm]     = useState({ qty_commissioned: '', progress_date: '', notes: '' })
+  const [savingEntry, setSavingEntry] = useState(false)
 
   useEffect(() => {
     if (!activeProject) return
@@ -53,6 +62,61 @@ export default function CommissioningPage() {
     } finally { setLoading(false) }
   }
 
+  // ── Admin: view / edit entry history ──────────────────────────────────
+  const openHistory = async (item) => {
+    setEditItem(item)
+    setEntriesLoading(true)
+    setEditingEntry(null)
+    try {
+      const r = await site.entries(activeProject.id, item.id)
+      setEntries(r.data)
+    } catch (e) {
+      toast.error('Could not load entry history')
+    } finally {
+      setEntriesLoading(false)
+    }
+  }
+
+  const closeHistory = () => {
+    setEditItem(null)
+    setEntries([])
+    setEditingEntry(null)
+  }
+
+  const startEditEntry = (entry) => {
+    setEditingEntry(entry.id)
+    setEditForm({
+      qty_commissioned: entry.qty_commissioned,
+      progress_date: entry.progress_date,
+      notes: entry.notes || '',
+    })
+  }
+
+  const cancelEditEntry = () => {
+    setEditingEntry(null)
+    setEditForm({ qty_commissioned: '', progress_date: '', notes: '' })
+  }
+
+  const saveEditEntry = async (entryId) => {
+    setSavingEntry(true)
+    try {
+      await site.editEntry(entryId, {
+        qty_commissioned: parseFloat(editForm.qty_commissioned || 0),
+        progress_date: editForm.progress_date,
+        notes: editForm.notes,
+      })
+      toast.success('Entry updated')
+      setEditingEntry(null)
+      const r = await site.entries(activeProject.id, editItem.id)
+      setEntries(r.data)
+      load()
+    } catch (e) {
+      toast.error('Error updating entry')
+    } finally {
+      setSavingEntry(false)
+    }
+  }
+
   const zones = [...new Set(items.map(i => i.site_zone).filter(Boolean))]
   const filtered = filter === 'all' ? items : items.filter(i => i.site_zone === filter)
 
@@ -90,6 +154,83 @@ export default function CommissioningPage() {
         </div>
       </div>
 
+      {/* Admin: entry history / edit panel */}
+      {isAdmin && editItem && (
+        <div className="card" style={{ marginBottom: 16, border: '1px solid var(--purple)' }}>
+          <div className="card-header">
+            <span className="card-title">
+              Entry history — {editItem.sr_no} ({editItem.description.substring(0, 60)})
+            </span>
+            <button className="btn btn-sm" onClick={closeHistory}>Close</button>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style={{ textAlign: 'right' }}>Qty commissioned</th>
+                  <th>Notes</th>
+                  <th>Updated by</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entriesLoading && <tr><td colSpan={5} className="empty">Loading…</td></tr>}
+                {!entriesLoading && entries.length === 0 && (
+                  <tr><td colSpan={5} className="empty">No entries yet.</td></tr>
+                )}
+                {!entriesLoading && entries.map(e => (
+                  <tr key={e.id}>
+                    {editingEntry === e.id ? (
+                      <>
+                        <td>
+                          <input type="date" className="form-input"
+                            style={{ padding: '4px 6px', fontSize: 12 }}
+                            value={editForm.progress_date}
+                            onChange={ev => setEditForm(f => ({ ...f, progress_date: ev.target.value }))} />
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input type="number" step="any" className="form-input"
+                            style={{ width: 90, padding: '4px 6px', fontSize: 12, textAlign: 'right' }}
+                            value={editForm.qty_commissioned}
+                            onChange={ev => setEditForm(f => ({ ...f, qty_commissioned: ev.target.value }))} />
+                        </td>
+                        <td>
+                          <input type="text" className="form-input"
+                            style={{ padding: '4px 6px', fontSize: 12, width: '100%' }}
+                            value={editForm.notes}
+                            onChange={ev => setEditForm(f => ({ ...f, notes: ev.target.value }))} />
+                        </td>
+                        <td style={{ fontSize: 12 }}>{e.updated_by_name}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn btn-sm btn-primary" disabled={savingEntry}
+                              onClick={() => saveEditEntry(e.id)}>
+                              {savingEntry ? '…' : 'Save'}
+                            </button>
+                            <button className="btn btn-sm" onClick={cancelEditEntry}>Cancel</button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td style={{ fontSize: 12 }}>{e.progress_date}</td>
+                        <td style={{ textAlign: 'right' }}>{e.qty_commissioned} {e.unit}</td>
+                        <td style={{ fontSize: 12, color: 'var(--text-s)' }}>{e.notes}</td>
+                        <td style={{ fontSize: 12 }}>{e.updated_by_name}</td>
+                        <td>
+                          <button className="btn btn-sm" onClick={() => startEditEntry(e)}>Edit</button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="card-header">
           <span className="card-title">Commissioning entry</span>
@@ -123,6 +264,7 @@ export default function CommissioningPage() {
         <div className="alert alert-info" style={{ margin: '12px 16px 0', marginBottom: 0 }}>
           Enter qty commissioned <strong>in this period only</strong>. Previous total shown for reference.
           Current entry will be used for RA bill computation (Part 2 commissioning value).
+          {isAdmin && ' Click a row\'s Sr. No. to view/correct previous entries.'}
         </div>
 
         <div className="table-wrap">
@@ -150,7 +292,17 @@ export default function CommissioningPage() {
 
                 return (
                   <tr key={item.id} style={{ background: current[item.id] ? 'var(--purple-l)' : '' }}>
-                    <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{item.sr_no}</td>
+                    <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      {isAdmin ? (
+                        <button
+                          onClick={() => openHistory(item)}
+                          style={{ background: 'none', border: 'none', padding: 0, color: 'var(--purple)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 500, fontSize: 'inherit' }}
+                          title="View / edit previous entries"
+                        >
+                          {item.sr_no}
+                        </button>
+                      ) : item.sr_no}
+                    </td>
                     <td style={{ maxWidth: 180, fontSize: 12 }}>{item.description.substring(0, 80)}</td>
                     <td style={{ fontSize: 11 }}>{item.site_zone?.split(' ')[0]}</td>
                     <td style={{ textAlign: 'right' }}>{item.po_qty} {item.unit}</td>
