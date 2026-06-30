@@ -346,6 +346,8 @@ def compute_ra(pid):
             # Part 1 — Supply billing is driven by dispatched quantity, not site progress
             all_dispatch = DispatchNote.query.filter_by(project_id=pid, boq_item_id=item.id).all()
             qty_upto = sum(Decimal(str(d.qty_dispatched)) for d in all_dispatch)
+            print(f"[RA DEBUG] item {item.sr_no} (id={item.id}, type={item.item_type}) — "
+                  f"dispatch rows found: {len(all_dispatch)}, qty_upto: {qty_upto}")
         elif item.item_type == "erection":
             qty_upto = total_installed
         else:
