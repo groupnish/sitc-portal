@@ -166,111 +166,163 @@ def generate_ra_excel(ra, project, line_items):
 
 
 def generate_ra_pdf(ra, project, line_items):
-    """Generate PDF using WeasyPrint from HTML template."""
-    try:
-        from weasyprint import HTML as WP_HTML
-    except ImportError:
-        return None
-
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <style>
-      body {{ font-family: Arial, sans-serif; font-size: 9pt; margin: 10mm; }}
-      h2 {{ text-align: center; font-size: 13pt; color: #0F6E56; margin-bottom: 4px; }}
-      .subtitle {{ text-align: center; font-size: 9pt; color: #555; margin-bottom: 8px; }}
-      .parties {{ display: flex; gap: 16px; margin-bottom: 8px; }}
-      .party {{ flex: 1; border: 0.5px solid #ccc; padding: 6px; border-radius: 4px; font-size: 8pt; }}
-      table {{ width: 100%; border-collapse: collapse; font-size: 8pt; margin-top: 8px; }}
-      th {{ background: #E1F5EE; border: 0.5px solid #aaa; padding: 4px 3px; text-align: center; font-size: 7.5pt; }}
-      td {{ border: 0.5px solid #ccc; padding: 3px; }}
-      .num {{ text-align: right; }}
-      .cen {{ text-align: center; }}
-      .desc {{ max-width: 180px; }}
-      .summary-table {{ width: 60%; margin-left: auto; margin-top: 10px; }}
-      .summary-table td {{ padding: 3px 6px; }}
-      .total-row td {{ font-weight: bold; background: #E1F5EE; }}
-      .words {{ margin-top: 8px; font-weight: bold; font-size: 9pt; border: 0.5px solid #ccc; padding: 5px; border-radius: 4px; }}
-      .footer {{ margin-top: 16px; display: flex; justify-content: space-between; font-size: 8pt; }}
-    </style>
-    </head>
-    <body>
-    <h2>RA Bill No. {ra.ra_number} — {project.name}</h2>
-    <div class="subtitle">Invoice No: {ra.invoice_no} | Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}</div>
-
-    <div class="parties">
-      <div class="party"><b>Seller:</b><br>{project.seller_name}<br>{project.seller_address or ""}<br>GSTIN: {project.seller_gstin or ""}</div>
-      <div class="party"><b>Buyer:</b><br>{project.client_name}<br>{project.client_address or ""}<br>GSTIN: {project.client_gstin or ""}</div>
-      <div class="party"><b>Site:</b><br>{project.site_name or project.client_name}<br>{project.site_address or ""}</div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Sr.</th><th>Description</th><th>Unit</th><th>PO Qty</th><th>Rate</th>
-          <th>Prev Qty</th><th>Prev Amt</th>
-          <th>This Qty</th><th>This Amt</th>
-          <th>Upto Qty</th><th>Upto Amt</th>
-          <th>Bal Qty</th><th>Bal Amt</th>
-        </tr>
-      </thead>
-      <tbody>
-    """
-    for li in line_items:
-        desc = li["description"][:150]
-        html += f"""
-        <tr>
-          <td class="cen">{li["sr_no"]}</td>
-          <td class="desc">{desc}</td>
-          <td class="cen">{li["unit"]}</td>
-          <td class="num">{li["po_qty"]:,.3f}</td>
-          <td class="num">{li["rate"]:,.2f}</td>
-          <td class="num">{li["qty_prev"]:,.3f}</td>
-          <td class="num">{li["amount_prev"]:,.2f}</td>
-          <td class="num">{li["qty_this"]:,.3f}</td>
-          <td class="num">{li["amount_this"]:,.2f}</td>
-          <td class="num">{li["qty_upto"]:,.3f}</td>
-          <td class="num">{li["amount_upto"]:,.2f}</td>
-          <td class="num">{li["qty_balance"]:,.3f}</td>
-          <td class="num">{li["amount_balance"]:,.2f}</td>
-        </tr>"""
-
-    html += f"""
-      </tbody>
-    </table>
-
-    <table class="summary-table">
-      <tr><td>Supply value (this bill)</td><td class="num">₹{float(ra.supply_value_this):,.2f}</td></tr>
-      <tr><td>E&C value (this bill)</td><td class="num">₹{float(ra.ec_value_this):,.2f}</td></tr>
-      <tr><td><b>Taxable value</b></td><td class="num"><b>₹{float(ra.taxable_value):,.2f}</b></td></tr>
-    """
-    if float(ra.igst_amount) > 0:
-        html += f"<tr><td>IGST @ {project.igst_rate}%</td><td class='num'>₹{float(ra.igst_amount):,.2f}</td></tr>"
-    if float(ra.cgst_amount) > 0:
-        html += f"<tr><td>CGST @ {project.cgst_rate}%</td><td class='num'>₹{float(ra.cgst_amount):,.2f}</td></tr>"
-        html += f"<tr><td>SGST @ {project.sgst_rate}%</td><td class='num'>₹{float(ra.sgst_amount):,.2f}</td></tr>"
-    html += f"""
-      <tr><td><b>Gross total</b></td><td class="num"><b>₹{float(ra.gross_total):,.2f}</b></td></tr>
-      <tr><td>Less: Advance recovery ({project.pt_advance_pct}%)</td><td class="num">₹{float(ra.advance_recovery):,.2f}</td></tr>
-    """
-    if float(ra.retention_deduction) > 0:
-        html += f"<tr><td>Less: Retention ({project.pt_retention_pct}%)</td><td class='num'>₹{float(ra.retention_deduction):,.2f}</td></tr>"
-    html += f"""
-      <tr class="total-row"><td>Net payable</td><td class="num">₹{float(ra.net_payable):,.2f}</td></tr>
-    </table>
-
-    <div class="words">Amount in words: {amount_in_words(float(ra.net_payable))}</div>
-
-    <div class="footer">
-      <div>For {project.client_name}<br><br><br>Authorised Signatory</div>
-      <div>For {project.seller_name}<br><br><br>Authorised Signatory</div>
-    </div>
-    </body></html>
-    """
+    """Generate PDF using ReportLab — pure Python, no system dependencies.
+    Replaces the earlier WeasyPrint-based version which failed silently on
+    Render's free tier (missing Pango/Cairo system libraries)."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer)
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    WP_HTML(string=html).write_pdf(tmp.name)
+
+    GREEN = colors.HexColor("#0F6E56")
+    GREEN_FILL = colors.HexColor("#E1F5EE")
+    GRAY_FILL  = colors.HexColor("#F1EFE8")
+    BORDER     = colors.HexColor("#CCCCCC")
+
+    doc = SimpleDocTemplate(
+        tmp.name, pagesize=landscape(A4),
+        topMargin=10*mm, bottomMargin=10*mm,
+        leftMargin=10*mm, rightMargin=10*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Heading2"],
+                                  alignment=TA_CENTER, textColor=GREEN, fontSize=14, spaceAfter=2)
+    subtitle_style = ParagraphStyle("subtitle", parent=styles["Normal"],
+                                     alignment=TA_CENTER, fontSize=8.5, textColor=colors.HexColor("#555555"))
+    party_style = ParagraphStyle("party", parent=styles["Normal"], fontSize=7.5, leading=10)
+    cell_style  = ParagraphStyle("cell", parent=styles["Normal"], fontSize=7, leading=8.5)
+    cell_right  = ParagraphStyle("cellr", parent=cell_style, alignment=TA_RIGHT)
+    cell_center = ParagraphStyle("cellc", parent=cell_style, alignment=TA_CENTER)
+    words_style = ParagraphStyle("words", parent=styles["Normal"], fontSize=9, fontName="Helvetica-Bold")
+
+    elements = []
+
+    elements.append(Paragraph(f"RA Bill No. {ra.ra_number} — {project.name}", title_style))
+    elements.append(Paragraph(
+        f"Invoice No: {ra.invoice_no} | Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}",
+        subtitle_style))
+    elements.append(Spacer(1, 6))
+
+    # Seller / Buyer / Site blocks
+    party_data = [[
+        Paragraph(f"<b>Seller:</b><br/>{project.seller_name}<br/>{project.seller_address or ''}<br/>GSTIN: {project.seller_gstin or ''}", party_style),
+        Paragraph(f"<b>Buyer:</b><br/>{project.client_name}<br/>{project.client_address or ''}<br/>GSTIN: {project.client_gstin or ''}", party_style),
+        Paragraph(f"<b>Site:</b><br/>{project.site_name or project.client_name}<br/>{project.site_address or ''}", party_style),
+    ]]
+    party_table = Table(party_data, colWidths=[90*mm, 90*mm, 90*mm])
+    party_table.setStyle(TableStyle([
+        ("BOX", (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, BORDER),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    elements.append(party_table)
+    elements.append(Spacer(1, 8))
+
+    # Line items table
+    headers = ["Sr.", "Description", "Unit", "PO Qty", "Rate",
+               "Prev Qty", "Prev Amt", "This Qty", "This Amt",
+               "Upto Qty", "Upto Amt", "Bal Qty", "Bal Amt"]
+    table_data = [[Paragraph(f"<b>{h}</b>", cell_center) for h in headers]]
+
+    for li in line_items:
+        desc = li["description"][:150]
+        table_data.append([
+            Paragraph(str(li["sr_no"]), cell_center),
+            Paragraph(desc, cell_style),
+            Paragraph(li["unit"], cell_center),
+            Paragraph(f"{li['po_qty']:,.3f}", cell_right),
+            Paragraph(f"{li['rate']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_this']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_this']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
+        ])
+
+    col_widths = [10*mm, 55*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]
+    items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    items_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), GREEN_FILL),
+        ("GRID", (0,0), (-1,-1), 0.5, BORDER),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+        ("RIGHTPADDING", (0,0), (-1,-1), 3),
+    ]))
+    elements.append(items_table)
+    elements.append(Spacer(1, 10))
+
+    # Summary table (right-aligned, ~60% width)
+    summary_rows = [
+        ["Supply value (this bill)", f"Rs. {float(ra.supply_value_this):,.2f}", False],
+        ["E&C value (this bill)", f"Rs. {float(ra.ec_value_this):,.2f}", False],
+        ["Taxable value", f"Rs. {float(ra.taxable_value):,.2f}", True],
+    ]
+    if float(ra.igst_amount) > 0:
+        summary_rows.append([f"IGST @ {project.igst_rate}%", f"Rs. {float(ra.igst_amount):,.2f}", False])
+    if float(ra.cgst_amount) > 0:
+        summary_rows.append([f"CGST @ {project.cgst_rate}%", f"Rs. {float(ra.cgst_amount):,.2f}", False])
+        summary_rows.append([f"SGST @ {project.sgst_rate}%", f"Rs. {float(ra.sgst_amount):,.2f}", False])
+    summary_rows.append(["Gross total", f"Rs. {float(ra.gross_total):,.2f}", True])
+    summary_rows.append([f"Less: Advance recovery ({project.pt_advance_pct}%)", f"Rs. {float(ra.advance_recovery):,.2f}", False])
+    if float(ra.retention_deduction) > 0:
+        summary_rows.append([f"Less: Retention ({project.pt_retention_pct}%)", f"Rs. {float(ra.retention_deduction):,.2f}", False])
+    summary_rows.append(["Net payable", f"Rs. {float(ra.net_payable):,.2f}", True])
+
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=9)
+    summary_style_b = ParagraphStyle("summaryb", parent=summary_style, fontName="Helvetica-Bold")
+    summary_right = ParagraphStyle("summaryr", parent=summary_style, alignment=TA_RIGHT)
+    summary_right_b = ParagraphStyle("summaryrb", parent=summary_style_b, alignment=TA_RIGHT)
+
+    summary_data = []
+    for label, value, bold in summary_rows:
+        summary_data.append([
+            Paragraph(label, summary_style_b if bold else summary_style),
+            Paragraph(value, summary_right_b if bold else summary_right),
+        ])
+
+    summary_table = Table(summary_data, colWidths=[130*mm, 50*mm], hAlign="RIGHT")
+    sstyle_cmds = [
+        ("GRID", (0,0), (-1,-1), 0.4, BORDER),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+    ]
+    # Highlight the "Net payable" row (last row)
+    sstyle_cmds.append(("BACKGROUND", (0, len(summary_data)-1), (-1, len(summary_data)-1), GREEN_FILL))
+    summary_table.setStyle(TableStyle(sstyle_cmds))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph(
+        f"Amount in words: {amount_in_words(float(ra.net_payable))}", words_style))
+    elements.append(Spacer(1, 20))
+
+    # Signatory footer
+    footer_data = [[
+        Paragraph(f"For {project.client_name}<br/><br/><br/>Authorised Signatory", party_style),
+        Paragraph(f"For {project.seller_name}<br/><br/><br/>Authorised Signatory", party_style),
+    ]]
+    footer_table = Table(footer_data, colWidths=[140*mm, 140*mm])
+    footer_table.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+    ]))
+    elements.append(footer_table)
+
+    doc.build(elements)
     tmp.close()
     return tmp.name
