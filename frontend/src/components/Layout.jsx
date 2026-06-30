@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { applyResponsiveTableLabels } from '../utils/responsiveTable'
 import toast from 'react-hot-toast'
 
 const Icon = ({ d }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>
@@ -26,8 +27,19 @@ export default function Layout() {
   const { user, logout, projectList, activeProject, switchProject, isAdmin, isSCM, isAccounts, isSite } = useAuth()
   const [sideOpen, setSideOpen] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleLogout = () => { logout(); navigate('/login') }
+
+  // Auto-tag tables for the mobile card layout (index.css .table-cards rules)
+  // on every navigation and shortly after, to catch tables that render
+  // asynchronously once their data finishes loading.
+  useEffect(() => {
+    applyResponsiveTableLabels()
+    const t1 = setTimeout(applyResponsiveTableLabels, 300)
+    const t2 = setTimeout(applyResponsiveTableLabels, 1000)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [location.pathname])
 
   const roleBadge = { admin:'badge-gray', scm:'badge-teal', accounts:'badge-purple', site:'badge-coral', management:'badge-amber' }
 

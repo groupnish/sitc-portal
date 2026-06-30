@@ -32,7 +32,7 @@ body {
 }
 
 /* Layout */
-.app-shell { display: flex; height: 100dvh; overflow: hidden; }
+.app-shell { display: flex; height: 100dvh; overflow: hidden; position: relative; }
 .sidebar {
   width: 220px; min-width: 220px;
   background: var(--white);
@@ -157,11 +157,28 @@ tr:hover td { background: var(--bg); }
 .alert-error   { background: #FCEBEB; color: #A32D2D; }
 
 /* Login */
-.login-wrap { min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
-.login-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; width: 100%; max-width: 380px; }
+.login-wrap {
+  min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, var(--bg) 0%, #f1efe6 100%);
+  padding: 16px;
+}
+.login-card {
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 32px; width: 100%; max-width: 380px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+}
 .login-logo { text-align: center; margin-bottom: 24px; }
 .login-logo h1 { font-size: 20px; color: var(--teal); font-weight: 600; }
 .login-logo p  { font-size: 12px; color: var(--text-s); margin-top: 4px; }
+
+@media (max-width: 480px) {
+  .login-card {
+    border-radius: 20px;
+    padding: 28px 22px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+  }
+  .login-wrap { padding: 20px 16px; align-items: center; }
+}
 
 /* Mobile overlay */
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 199; }
@@ -183,18 +200,88 @@ tr:hover td { background: var(--bg); }
 /* Role badge */
 .role-pill { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
 
-/* Mobile responsive */
+/* ───────────────────────── Mobile responsive ───────────────────────── */
 @media (max-width: 768px) {
-  .sidebar { position: fixed; z-index: 200; height: 100%; transform: translateX(-100%); }
+  /* Sidebar always fixed + off-canvas on mobile; main area is never
+     squeezed by its width since it's no longer a flex sibling visually */
+  .sidebar {
+    position: fixed; z-index: 200; height: 100%;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0,0,0,.12);
+  }
   .sidebar.open { transform: translateX(0); }
-  .sidebar-overlay.show { display: block; }
+  .sidebar-overlay.show { display: block; backdrop-filter: blur(2px); }
+
+  /* Main area always takes full viewport width on mobile regardless
+     of sidebar state — this fixes the "content cut off on the left" bug */
+  .app-shell { display: block; }
+  .main-area { width: 100%; }
+
   .menu-btn { display: flex; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid-3 { grid-template-columns: 1fr; }
-  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .page-content { padding: 12px; }
   .topbar { padding: 0 12px; }
   .card-header { flex-wrap: wrap; gap: 8px; }
+
+  /* Modern card look: softer shadow, more rounded corners, more breathing room */
+  .card {
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  }
+  .stat-card {
+    border-radius: 12px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+  }
+  .stat-value { font-size: 19px; }
+
+  /* Bigger touch targets */
+  .btn { padding: 10px 16px; font-size: 14px; }
+  .btn-sm { padding: 8px 12px; font-size: 13px; }
+  .form-input, .form-select, .form-textarea { padding: 11px 12px; font-size: 15px; }
+
+  /* ── Responsive table → stacked card list ──
+     Each <tr> becomes a card; each <td> becomes a labeled row using its
+     matching <th> text via a data-label attribute set at runtime, OR
+     (zero-JS fallback) simply hide the header row and lay tds out as
+     a vertical key:value list using the table's own structure. */
+  .table-wrap { overflow-x: visible; }
+  .table-wrap table.table-cards { border: none; }
+  .table-wrap table.table-cards thead { display: none; }
+  .table-wrap table.table-cards,
+  .table-wrap table.table-cards tbody,
+  .table-wrap table.table-cards tr,
+  .table-wrap table.table-cards td { display: block; width: 100%; }
+  .table-wrap table.table-cards tr {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    padding: 10px 4px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+  }
+  .table-wrap table.table-cards td {
+    border-bottom: none;
+    padding: 6px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    text-align: right;
+  }
+  .table-wrap table.table-cards td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    color: var(--text-s);
+    font-weight: 500;
+    text-align: left;
+    flex-shrink: 0;
+  }
+  .table-wrap table.table-cards td:empty,
+  .table-wrap table.table-cards td[data-label=""] { display: none; }
 }
 
 @media (max-width: 400px) {
