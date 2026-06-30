@@ -41,10 +41,43 @@ export default function Layout() {
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [location.pathname])
 
+  // TEMP DEBUG — remove after sidebar mobile issue is resolved.
+  // Shows live computed styles of the sidebar element directly on-screen,
+  // updated every time the menu is toggled, so we can diagnose on a real
+  // phone without needing USB debugging or DevTools.
+  const [debugInfo, setDebugInfo] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const el = document.querySelector('.sidebar')
+      if (!el) { setDebugInfo('sidebar element NOT FOUND'); return }
+      const cs = getComputedStyle(el)
+      const rect = el.getBoundingClientRect()
+      setDebugInfo(
+        `class="${el.className}" | ` +
+        `width:${cs.width} | display:${cs.display} | position:${cs.position} | ` +
+        `transform:${cs.transform} | z-index:${cs.zIndex} | ` +
+        `rect: x=${Math.round(rect.x)} y=${Math.round(rect.y)} w=${Math.round(rect.width)} h=${Math.round(rect.height)} | ` +
+        `viewport:${window.innerWidth}x${window.innerHeight}`
+      )
+    }, 150)
+    return () => clearTimeout(t)
+  }, [sideOpen])
+
   const roleBadge = { admin:'badge-gray', scm:'badge-teal', accounts:'badge-purple', site:'badge-coral', management:'badge-amber' }
 
   return (
     <div className="app-shell">
+      {/* TEMP DEBUG BANNER — remove after sidebar mobile issue is resolved */}
+      {debugInfo && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
+          background: '#000', color: '#0f0', fontSize: 9, fontFamily: 'monospace',
+          padding: '6px 8px', wordBreak: 'break-all', maxHeight: '30vh', overflowY: 'auto',
+        }}>
+          {debugInfo}
+        </div>
+      )}
+
       {/* Overlay */}
       <div className={`sidebar-overlay ${sideOpen ? 'show' : ''}`} onClick={() => setSideOpen(false)} />
 

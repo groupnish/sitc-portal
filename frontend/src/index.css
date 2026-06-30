@@ -232,14 +232,13 @@ tr:hover td { background: var(--bg); }
   .sidebar.open { transform: translateX(0); }
   .sidebar-overlay.show { display: block; backdrop-filter: blur(2px); }
 
-  /* Keep the flex layout (page-content's scrolling depends on .main-area
-     being height-bound by a flex/100dvh ancestor chain — switching .app-shell
-     to display:block broke that and froze scrolling). The sidebar is
-     position:fixed on mobile so it's already out of normal flow and should
-     NOT be consuming flex space — but its base (desktop) width:220px rule
-     still applies since the mobile media query never overrides it. Reset
-     that here so .main-area always gets the full flex width on mobile. */
-  .sidebar { width: 0 !important; min-width: 0 !important; }
+  /* The sidebar is position:fixed on mobile (set above), which removes it
+     from normal document/flex flow entirely — so its width can NOT affect
+     .main-area's sizing regardless of what that width is. It needs a real,
+     explicit width here so it's actually visible when slid into view via
+     .sidebar.open's transform; min-width:0 here was wrongly collapsing it
+     to nothing, leaving only the dimmed overlay with no visible panel. */
+  .sidebar { width: 84vw; max-width: 300px; min-width: 240px; }
   .main-area { flex: 1 1 auto; width: 100%; min-width: 0; }
 
   .menu-btn { display: flex; }
