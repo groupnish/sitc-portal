@@ -45,15 +45,17 @@ body {
 .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .topbar {
   display: flex; align-items: center; gap: 12px;
-  padding: 0 16px; height: 52px; min-height: 52px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  padding-top: max(env(safe-area-inset-top, 0px), 0px);
+  height: auto;
+  min-height: 52px;
   background: var(--white);
   border-bottom: 1px solid var(--border);
-  /* Push below the iOS/Android status bar + notch when running as installed PWA */
-  padding-top: env(safe-area-inset-top, 0px);
-  height: calc(52px + env(safe-area-inset-top, 0px));
-  min-height: calc(52px + env(safe-area-inset-top, 0px));
-  position: sticky; top: 0; z-index: 50;
+  position: relative; top: 0; z-index: 50;
+  box-sizing: border-box;
 }
+.topbar > * { min-height: 52px; display: flex; align-items: center; }
 .page-content { flex: 1; overflow-y: auto; padding: 16px; }
 
 /* Sidebar items */
@@ -230,10 +232,15 @@ tr:hover td { background: var(--bg); }
   .sidebar.open { transform: translateX(0); }
   .sidebar-overlay.show { display: block; backdrop-filter: blur(2px); }
 
-  /* Main area always takes full viewport width on mobile regardless
-     of sidebar state — this fixes the "content cut off on the left" bug */
-  .app-shell { display: block; }
-  .main-area { width: 100%; }
+  /* Keep the flex layout (page-content's scrolling depends on .main-area
+     being height-bound by a flex/100dvh ancestor chain — switching .app-shell
+     to display:block broke that and froze scrolling). The sidebar is
+     position:fixed on mobile so it's already out of normal flow and should
+     NOT be consuming flex space — but its base (desktop) width:220px rule
+     still applies since the mobile media query never overrides it. Reset
+     that here so .main-area always gets the full flex width on mobile. */
+  .sidebar { width: 0 !important; min-width: 0 !important; }
+  .main-area { flex: 1 1 auto; width: 100%; min-width: 0; }
 
   .menu-btn { display: flex; }
   .form-grid { grid-template-columns: 1fr; }
