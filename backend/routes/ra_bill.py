@@ -5,7 +5,7 @@ The "current" entries are those added AFTER the last RA bill was saved.
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.models import (Project, BOQItem, User, RABill, RABillLine,
-                            SiteProgress, db)
+                            SiteProgress, DispatchNote, db)
 from services.notifications import notify_ra_generated
 from services.export import generate_ra_excel, generate_ra_pdf
 from datetime import date, datetime
@@ -52,7 +52,25 @@ def compute_ra(pid):
             project_id=pid, boq_item_id=item.id
         ).all()
 
-        if item.item_type in ["supply", "erection"]:
+        if item.item_type == "supply":
+            # Part 1 — Supply billing is driven by DISPATCHED quantity, not site progress.
+            # Site team logs installation/commissioning separately for Part 2 items only.
+            all_dispatch = DispatchNote.query.filter_by(
+                project_id=pid, boq_item_id=item.id
+            ).all()
+            if prev_ra_date:
+                prev_dispatch = [d for d in all_dispatch if d.created_at <= prev_ra_date]
+                curr_dispatch = [d for d in all_dispatch if d.created_at > prev_ra_date]
+            else:
+                prev_dispatch = []
+                curr_dispatch = all_dispatch
+
+            qty_prev_total = sum(Decimal(str(d.qty_dispatched)) for d in prev_dispatch)
+            qty_curr       = sum(Decimal(str(d.qty_dispatched)) for d in curr_dispatch)
+            qty_upto       = qty_prev_total + qty_curr
+            qty_balance    = max(po_qty - qty_upto, Decimal("0"))
+
+        elif item.item_type == "erection":
             # Previous: entries up to last RA bill date
             if prev_ra_date:
                 prev_entries = [e for e in all_entries if e.updated_at <= prev_ra_date]
