@@ -48,6 +48,13 @@ export const boq = {
   bulk:   (pid,d) => api.post(`/boq/${pid}/bulk`, d),
   update: (id,d) => api.put(`/boq/item/${id}`, d),
   del:    id => api.delete(`/boq/item/${id}`),
+  importExcel: (pid, file, preview=false) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/boq/${pid}/import-excel?preview=${preview}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
 }
 export const grn = {
   list:   pid => api.get(`/grn/${pid}`),

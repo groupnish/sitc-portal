@@ -96,6 +96,142 @@ def bulk_add_boq(pid):
     db.session.commit()
     return jsonify([i.to_dict() for i in created]), 201
 
+@boq_bp.route("/<int:pid>/import-excel", methods=["POST"])
+@jwt_required()
+def import_boq_excel(pid):
+    err = admin_required()
+    if err: return err
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    file = request.files["file"]
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        return jsonify({"error": "File must be .xlsx or .xls"}), 400
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return jsonify({"error": f"Could not read Excel file: {e}"}), 400
+
+    # Expected columns (matches BOQ_Import_Template / BEIL_WO249_EC_BOQ_Import):
+    # A: Sr.No  B: Description  C: PO Qty  D: Unit  E: Rate  F: Amount
+    # G: Site Zone  H: Item Type  I: Milestone Type  J: Remarks
+    # Header is on row 3, hint row 4, data starts row 5
+    HEADER_ROW = 3
+    DATA_START_ROW = 5
+
+    # Locate header row dynamically in case template varies slightly,
+    # by scanning first 6 rows for a cell containing "Sr"
+    header_row_idx = None
+    for r in range(1, 7):
+        val = ws.cell(row=r, column=1).value
+        if val and "sr" in str(val).lower():
+            header_row_idx = r
+            break
+    data_start = (header_row_idx + 2) if header_row_idx else DATA_START_ROW
+
+    rows = []
+    errors = []
+    seen_sr = set()
+
+    for r in range(data_start, ws.max_row + 1):
+        sr_no = ws.cell(row=r, column=1).value
+        description = ws.cell(row=r, column=2).value
+        po_qty = ws.cell(row=r, column=3).value
+        unit = ws.cell(row=r, column=4).value
+        rate = ws.cell(row=r, column=5).value
+        site_zone = ws.cell(row=r, column=7).value
+        item_type = ws.cell(row=r, column=8).value
+
+        # Stop at blank row or TOTAL row
+        if sr_no is None and description is None:
+            continue
+        if sr_no and "total" in str(sr_no).lower():
+            continue
+        if not sr_no or not description:
+            continue
+
+        sr_no = str(sr_no).strip()
+        description = str(description).strip()
+
+        if sr_no in seen_sr:
+            errors.append(f"Row {r}: duplicate Sr.No '{sr_no}' in file — skipped")
+            continue
+        seen_sr.add(sr_no)
+
+        try:
+            po_qty = float(po_qty) if po_qty not in (None, "") else 0
+        except (ValueError, TypeError):
+            errors.append(f"Row {r}: invalid PO Qty for '{sr_no}' — skipped")
+            continue
+
+        try:
+            rate = float(rate) if rate not in (None, "") else 0
+        except (ValueError, TypeError):
+            rate = 0
+
+        unit = str(unit).strip() if unit else "Nos."
+        site_zone = str(site_zone).strip() if site_zone else "GENERAL"
+        item_type = str(item_type).strip().lower() if item_type else "supply"
+        if item_type not in ("supply", "erection", "commissioning"):
+            item_type = "supply"
+
+        rows.append({
+            "sr_no": sr_no,
+            "description": description,
+            "po_qty": po_qty,
+            "unit": unit,
+            "rate": rate,
+            "amount": round(po_qty * rate, 2),
+            "site_zone": site_zone,
+            "item_type": item_type,
+        })
+
+    if not rows:
+        return jsonify({"error": "No valid rows found in file", "row_errors": errors}), 400
+
+    # Check against existing Sr.Nos already in this project
+    existing_sr = {i.sr_no for i in BOQItem.query.filter_by(project_id=pid, is_active=True).all()}
+    duplicates_in_db = [r["sr_no"] for r in rows if r["sr_no"] in existing_sr]
+
+    preview_only = request.args.get("preview", "false").lower() == "true"
+    if preview_only:
+        return jsonify({
+            "rows": rows,
+            "row_errors": errors,
+            "duplicates_in_db": duplicates_in_db,
+            "total_amount": sum(r["amount"] for r in rows),
+        })
+
+    # Actual import — skip any Sr.No that already exists in this project
+    existing_count = BOQItem.query.filter_by(project_id=pid).count()
+    created = []
+    skipped = []
+    for i, r in enumerate(rows):
+        if r["sr_no"] in existing_sr:
+            skipped.append(r["sr_no"])
+            continue
+        item = BOQItem(
+            project_id=pid,
+            sort_order=existing_count + i,
+            sr_no=r["sr_no"], description=r["description"],
+            po_qty=r["po_qty"], unit=r["unit"], rate=r["rate"],
+            amount=r["amount"], site_zone=r["site_zone"], item_type=r["item_type"],
+        )
+        db.session.add(item)
+        created.append(item)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"{len(created)} item(s) imported, {len(skipped)} skipped (already exist)",
+        "imported_count": len(created),
+        "skipped_sr_nos": skipped,
+        "items": [i.to_dict() for i in created],
+    }), 201
+
 @boq_bp.route("/item/<int:iid>", methods=["PUT"])
 @jwt_required()
 def update_boq_item(iid):

@@ -1,5 +1,5 @@
 // BOQPage.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { boq, projects } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import toast from 'react-hot-toast'
@@ -15,6 +15,12 @@ export function BOQPage() {
   const [editing, setEditing] = useState(null)
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState('all')
+
+  // Import Excel state
+  const fileInputRef = useRef(null)
+  const [importPreview, setImportPreview] = useState(null) // {rows, row_errors, duplicates_in_db, total_amount}
+  const [importing, setImporting] = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)
 
   useEffect(() => { if(activeProject) load() }, [activeProject])
   const load = () => boq.list(activeProject.id).then(r=>setItems(r.data))
@@ -35,6 +41,45 @@ export function BOQPage() {
     await boq.del(id); toast.success('Deleted'); load()
   }
 
+  // ── Import Excel handlers ──────────────────────────────────────────────
+  const onFilePicked = async e => {
+    const file = e.target.files[0]
+    if (!file) return
+    setPendingFile(file)
+    setImporting(true)
+    try {
+      const res = await boq.importExcel(activeProject.id, file, true) // preview=true
+      setImportPreview(res.data)
+    } catch(err) {
+      toast.error(err.response?.data?.error || 'Could not read file')
+      setPendingFile(null)
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const confirmImport = async () => {
+    if (!pendingFile) return
+    setImporting(true)
+    try {
+      const res = await boq.importExcel(activeProject.id, pendingFile, false) // actual import
+      toast.success(res.data.message)
+      setImportPreview(null)
+      setPendingFile(null)
+      load()
+    } catch(err) {
+      toast.error(err.response?.data?.error || 'Import failed')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const cancelImport = () => {
+    setImportPreview(null)
+    setPendingFile(null)
+  }
+
   const filtered = filter==='all' ? items : items.filter(i=>i.site_zone===filter)
   const total = items.reduce((a,i)=>a+i.amount,0)
 
@@ -44,10 +89,72 @@ export function BOQPage() {
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h2 style={{fontSize:14,fontWeight:500}}>BOQ manager — {activeProject.code} ({items.length} items)</h2>
-        <button className="btn btn-primary btn-sm" onClick={()=>{setForm(BLANK);setEditing(null);setShowForm(s=>!s)}}>
-          {showForm?'Cancel':'+ Add item'}
-        </button>
+        <div style={{display:'flex',gap:8}}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{display:'none'}}
+            onChange={onFilePicked}
+          />
+          <button className="btn btn-sm" disabled={importing} onClick={()=>fileInputRef.current?.click()}>
+            {importing ? 'Reading…' : '⬆ Import Excel'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={()=>{setForm(BLANK);setEditing(null);setShowForm(s=>!s)}}>
+            {showForm?'Cancel':'+ Add item'}
+          </button>
+        </div>
       </div>
+
+      {importPreview && (
+        <div className="card" style={{marginBottom:16,border:'1px solid #1D9E75'}}>
+          <div className="card-header">
+            <span className="card-title">
+              Import preview — {importPreview.rows.length} item(s) found, total ₹{Number(importPreview.total_amount).toLocaleString('en-IN')}
+            </span>
+          </div>
+          <div className="card-body">
+            {importPreview.duplicates_in_db?.length > 0 && (
+              <div className="alert alert-warning" style={{marginBottom:12,fontSize:12}}>
+                {importPreview.duplicates_in_db.length} Sr.No(s) already exist in this project and will be <b>skipped</b>: {importPreview.duplicates_in_db.join(', ')}
+              </div>
+            )}
+            {importPreview.row_errors?.length > 0 && (
+              <div className="alert alert-warning" style={{marginBottom:12,fontSize:12}}>
+                {importPreview.row_errors.length} row(s) had issues and were skipped:
+                <ul style={{margin:'4px 0 0 16px'}}>
+                  {importPreview.row_errors.map((e,i)=><li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="table-wrap" style={{maxHeight:300,overflowY:'auto'}}>
+              <table>
+                <thead><tr><th>Sr.</th><th>Description</th><th>Zone</th><th>Type</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {importPreview.rows.map((r,i)=>(
+                    <tr key={i} style={importPreview.duplicates_in_db?.includes(r.sr_no) ? {opacity:0.4} : {}}>
+                      <td style={{fontWeight:500}}>{r.sr_no}</td>
+                      <td style={{maxWidth:220,fontSize:12}}>{r.description.substring(0,80)}</td>
+                      <td style={{fontSize:11}}>{r.site_zone}</td>
+                      <td><span className={`badge ${r.item_type==='supply'?'badge-teal':r.item_type==='erection'?'badge-coral':'badge-amber'}`}>{r.item_type}</span></td>
+                      <td>{r.po_qty}</td>
+                      <td>{r.unit}</td>
+                      <td>{Number(r.rate).toLocaleString('en-IN')}</td>
+                      <td>₹{Number(r.amount).toLocaleString('en-IN')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:'flex',gap:8,marginTop:16}}>
+              <button className="btn btn-primary" disabled={importing} onClick={confirmImport}>
+                {importing ? 'Importing…' : `Confirm import (${importPreview.rows.length - (importPreview.duplicates_in_db?.length||0)} new items)`}
+              </button>
+              <button className="btn btn-sm" disabled={importing} onClick={cancelImport}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="card">
