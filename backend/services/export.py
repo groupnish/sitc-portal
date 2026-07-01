@@ -6,6 +6,12 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
+# Asset paths — images embedded in PDF/Excel exports
+_ASSETS = os.path.join(os.path.dirname(__file__), 'assets')
+LOGO_FULL  = os.path.join(_ASSETS, 'logo_full.png')   # Group Nish logo with tagline
+LOGO_MARK  = os.path.join(_ASSETS, 'logo_mark.png')   # Circular mark only (Excel)
+STAMP_PATH = os.path.join(_ASSETS, 'stamp.png')       # Company round stamp
+
 
 def amount_in_words(amount):
     ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight",
@@ -39,8 +45,7 @@ def generate_ra_excel(ra, project, line_items):
     ws = wb.active
     ws.title = "RA Bill"
 
-    # Styles
-    hdr_font  = Font(bold=True, size=11)
+    hdr_font   = Font(bold=True, size=11)
     title_font = Font(bold=True, size=13)
     green_fill = PatternFill("solid", fgColor="E1F5EE")
     gray_fill  = PatternFill("solid", fgColor="F1EFE8")
@@ -60,13 +65,23 @@ def generate_ra_excel(ra, project, line_items):
         if fmt:  c.number_format = fmt
         return c
 
-    # Column widths
     col_widths = [6, 60, 8, 10, 12, 10, 12, 10, 12, 10, 12, 10, 12]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
-    r = 1
-    # Title
+    # Logo in Excel (top-left, rows 1-2)
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        xl_logo = XLImage(LOGO_MARK)
+        xl_logo.width  = 65
+        xl_logo.height = 65
+        ws.add_image(xl_logo, 'A1')
+        ws.row_dimensions[1].height = 50
+        ws.row_dimensions[2].height = 18
+    except Exception:
+        pass
+
+    r = 3
     ws.merge_cells(f"A{r}:M{r}")
     c = ws.cell(r, 1, f"RA BILL No. {ra.ra_number} — {project.name}")
     c.font = title_font; c.alignment = center; c.fill = green_fill; c.border = border
@@ -77,7 +92,6 @@ def generate_ra_excel(ra, project, line_items):
     c.font = Font(size=10); c.alignment = center; c.border = border
     r += 1
 
-    # Party details
     ws.merge_cells(f"A{r}:F{r+2}")
     c = ws.cell(r, 1, f"SELLER: {project.seller_name}\n{project.seller_address}\nGSTIN: {project.seller_gstin}")
     c.alignment = Alignment(wrap_text=True, vertical="top")
@@ -89,7 +103,6 @@ def generate_ra_excel(ra, project, line_items):
     c.font = Font(size=9); c.border = border
     r += 3
 
-    # BOQ Header
     headers = ["Sr.", "Description", "Unit", "PO Qty", "Rate",
                "Prev Qty", "Prev Amt", "This Qty", "This Amt",
                "Upto Qty", "Upto Amt", "Bal Qty", "Bal Amt"]
@@ -97,9 +110,6 @@ def generate_ra_excel(ra, project, line_items):
         cell(r, i, h, bold=True, fill=gray_fill)
     r += 1
 
-    # Line items
-    supply_this = Decimal(0)
-    ec_this = Decimal(0)
     for li in line_items:
         cell(r, 1, li["sr_no"], align=center)
         cell(r, 2, li["description"][:200], align=left)
@@ -116,7 +126,6 @@ def generate_ra_excel(ra, project, line_items):
         cell(r, 13, li["amount_balance"], align=right, fmt="#,##0.00")
         r += 1
 
-    # Summary rows
     r += 1
     def summary_row(label, value, bold=False, fill=None):
         nonlocal r
@@ -155,8 +164,29 @@ def generate_ra_excel(ra, project, line_items):
     ws.merge_cells(f"A{r}:M{r}")
     c = ws.cell(r, 1, f"HSN/SAC: {project.hsn_sac_code}   |   Place of Supply: {project.place_of_supply}")
     c.font = Font(size=9); c.alignment = center; c.border = border
+    r += 2
 
-    # Freeze panes
+    # Stamp in signatory area
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        stamp_xl = XLImage(STAMP_PATH)
+        stamp_xl.width  = 75
+        stamp_xl.height = 75
+        ws.add_image(stamp_xl, f'K{r}')
+    except Exception:
+        pass
+
+    ws.merge_cells(f"A{r}:F{r}")
+    c = ws.cell(r, 1, "Certified that the particulars given above are true and correct.")
+    c.font = Font(size=9); c.alignment = left; c.border = border
+    ws.merge_cells(f"H{r}:M{r}")
+    c = ws.cell(r, 8, "For NISH TECHNO PROJECTS PRIVATE LIMITED")
+    c.font = Font(bold=True, size=10); c.alignment = center; c.border = border
+    r += 4
+    ws.merge_cells(f"H{r}:M{r}")
+    c = ws.cell(r, 8, "Authorised Signatory")
+    c.font = Font(size=10); c.alignment = center; c.border = border
+
     ws.freeze_panes = "A8"
 
     tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
@@ -166,112 +196,179 @@ def generate_ra_excel(ra, project, line_items):
 
 
 def generate_ra_pdf(ra, project, line_items):
-    """Generate PDF using WeasyPrint from HTML template."""
-    try:
-        from weasyprint import HTML as WP_HTML
-    except ImportError:
-        return None
-
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <style>
-      body {{ font-family: Arial, sans-serif; font-size: 9pt; margin: 10mm; }}
-      h2 {{ text-align: center; font-size: 13pt; color: #0F6E56; margin-bottom: 4px; }}
-      .subtitle {{ text-align: center; font-size: 9pt; color: #555; margin-bottom: 8px; }}
-      .parties {{ display: flex; gap: 16px; margin-bottom: 8px; }}
-      .party {{ flex: 1; border: 0.5px solid #ccc; padding: 6px; border-radius: 4px; font-size: 8pt; }}
-      table {{ width: 100%; border-collapse: collapse; font-size: 8pt; margin-top: 8px; }}
-      th {{ background: #E1F5EE; border: 0.5px solid #aaa; padding: 4px 3px; text-align: center; font-size: 7.5pt; }}
-      td {{ border: 0.5px solid #ccc; padding: 3px; }}
-      .num {{ text-align: right; }}
-      .cen {{ text-align: center; }}
-      .desc {{ max-width: 180px; }}
-      .summary-table {{ width: 60%; margin-left: auto; margin-top: 10px; }}
-      .summary-table td {{ padding: 3px 6px; }}
-      .total-row td {{ font-weight: bold; background: #E1F5EE; }}
-      .words {{ margin-top: 8px; font-weight: bold; font-size: 9pt; border: 0.5px solid #ccc; padding: 5px; border-radius: 4px; }}
-      .footer {{ margin-top: 16px; display: flex; justify-content: space-between; font-size: 8pt; }}
-    </style>
-    </head>
-    <body>
-    <h2>RA Bill No. {ra.ra_number} — {project.name}</h2>
-    <div class="subtitle">Invoice No: {ra.invoice_no} | Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}</div>
-
-    <div class="parties">
-      <div class="party"><b>Seller:</b><br>{project.seller_name}<br>{project.seller_address or ""}<br>GSTIN: {project.seller_gstin or ""}</div>
-      <div class="party"><b>Buyer:</b><br>{project.client_name}<br>{project.client_address or ""}<br>GSTIN: {project.client_gstin or ""}</div>
-      <div class="party"><b>Site:</b><br>{project.site_name or project.client_name}<br>{project.site_address or ""}</div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Sr.</th><th>Description</th><th>Unit</th><th>PO Qty</th><th>Rate</th>
-          <th>Prev Qty</th><th>Prev Amt</th>
-          <th>This Qty</th><th>This Amt</th>
-          <th>Upto Qty</th><th>Upto Amt</th>
-          <th>Bal Qty</th><th>Bal Amt</th>
-        </tr>
-      </thead>
-      <tbody>
-    """
-    for li in line_items:
-        desc = li["description"][:150]
-        html += f"""
-        <tr>
-          <td class="cen">{li["sr_no"]}</td>
-          <td class="desc">{desc}</td>
-          <td class="cen">{li["unit"]}</td>
-          <td class="num">{li["po_qty"]:,.3f}</td>
-          <td class="num">{li["rate"]:,.2f}</td>
-          <td class="num">{li["qty_prev"]:,.3f}</td>
-          <td class="num">{li["amount_prev"]:,.2f}</td>
-          <td class="num">{li["qty_this"]:,.3f}</td>
-          <td class="num">{li["amount_this"]:,.2f}</td>
-          <td class="num">{li["qty_upto"]:,.3f}</td>
-          <td class="num">{li["amount_upto"]:,.2f}</td>
-          <td class="num">{li["qty_balance"]:,.3f}</td>
-          <td class="num">{li["amount_balance"]:,.2f}</td>
-        </tr>"""
-
-    html += f"""
-      </tbody>
-    </table>
-
-    <table class="summary-table">
-      <tr><td>Supply value (this bill)</td><td class="num">₹{float(ra.supply_value_this):,.2f}</td></tr>
-      <tr><td>E&C value (this bill)</td><td class="num">₹{float(ra.ec_value_this):,.2f}</td></tr>
-      <tr><td><b>Taxable value</b></td><td class="num"><b>₹{float(ra.taxable_value):,.2f}</b></td></tr>
-    """
-    if float(ra.igst_amount) > 0:
-        html += f"<tr><td>IGST @ {project.igst_rate}%</td><td class='num'>₹{float(ra.igst_amount):,.2f}</td></tr>"
-    if float(ra.cgst_amount) > 0:
-        html += f"<tr><td>CGST @ {project.cgst_rate}%</td><td class='num'>₹{float(ra.cgst_amount):,.2f}</td></tr>"
-        html += f"<tr><td>SGST @ {project.sgst_rate}%</td><td class='num'>₹{float(ra.sgst_amount):,.2f}</td></tr>"
-    html += f"""
-      <tr><td><b>Gross total</b></td><td class="num"><b>₹{float(ra.gross_total):,.2f}</b></td></tr>
-      <tr><td>Less: Advance recovery ({project.pt_advance_pct}%)</td><td class="num">₹{float(ra.advance_recovery):,.2f}</td></tr>
-    """
-    if float(ra.retention_deduction) > 0:
-        html += f"<tr><td>Less: Retention ({project.pt_retention_pct}%)</td><td class='num'>₹{float(ra.retention_deduction):,.2f}</td></tr>"
-    html += f"""
-      <tr class="total-row"><td>Net payable</td><td class="num">₹{float(ra.net_payable):,.2f}</td></tr>
-    </table>
-
-    <div class="words">Amount in words: {amount_in_words(float(ra.net_payable))}</div>
-
-    <div class="footer">
-      <div>For {project.client_name}<br><br><br>Authorised Signatory</div>
-      <div>For {project.seller_name}<br><br><br>Authorised Signatory</div>
-    </div>
-    </body></html>
-    """
+    """Generate RA Bill PDF using ReportLab — pure Python, no system dependencies."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, Image as RLImage)
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    WP_HTML(string=html).write_pdf(tmp.name)
+
+    GREEN      = colors.HexColor("#0F6E56")
+    GREEN_FILL = colors.HexColor("#E1F5EE")
+    GRAY_FILL  = colors.HexColor("#F1EFE8")
+    BORDER     = colors.HexColor("#CCCCCC")
+
+    doc = SimpleDocTemplate(
+        tmp.name, pagesize=landscape(A4),
+        topMargin=10*mm, bottomMargin=10*mm,
+        leftMargin=10*mm, rightMargin=10*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Heading2"],
+                                  alignment=TA_CENTER, textColor=GREEN, fontSize=14, spaceAfter=2)
+    subtitle_style = ParagraphStyle("subtitle", parent=styles["Normal"],
+                                     alignment=TA_CENTER, fontSize=8.5,
+                                     textColor=colors.HexColor("#555555"))
+    party_style = ParagraphStyle("party", parent=styles["Normal"], fontSize=7.5, leading=10)
+    cell_style  = ParagraphStyle("cell", parent=styles["Normal"], fontSize=7, leading=8.5)
+    cell_right  = ParagraphStyle("cellr", parent=cell_style, alignment=TA_RIGHT)
+    cell_center = ParagraphStyle("cellc", parent=cell_style, alignment=TA_CENTER)
+    words_style = ParagraphStyle("words", parent=styles["Normal"], fontSize=9,
+                                  fontName="Helvetica-Bold")
+
+    elements = []
+
+    # Logo header
+    try:
+        logo_img = RLImage(LOGO_FULL, width=55*mm, height=30*mm)
+        logo_img.hAlign = 'CENTER'
+        elements.append(logo_img)
+        elements.append(Spacer(1, 4))
+    except Exception:
+        pass
+
+    elements.append(Paragraph(f"RA Bill No. {ra.ra_number} — {project.name}", title_style))
+    elements.append(Paragraph(
+        f"Invoice No: {ra.invoice_no} | Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}",
+        subtitle_style))
+    elements.append(Spacer(1, 6))
+
+    # Seller / Buyer / Site blocks
+    party_data = [[
+        Paragraph(f"<b>Seller:</b><br/>{project.seller_name}<br/>{project.seller_address or ''}<br/>GSTIN: {project.seller_gstin or ''}", party_style),
+        Paragraph(f"<b>Buyer:</b><br/>{project.client_name}<br/>{project.client_address or ''}<br/>GSTIN: {project.client_gstin or ''}", party_style),
+        Paragraph(f"<b>Site:</b><br/>{project.site_name or project.client_name}<br/>{project.site_address or ''}", party_style),
+    ]]
+    party_table = Table(party_data, colWidths=[90*mm, 90*mm, 90*mm])
+    party_table.setStyle(TableStyle([
+        ("BOX", (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, BORDER),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    elements.append(party_table)
+    elements.append(Spacer(1, 8))
+
+    # Line items table
+    headers = ["Sr.", "Description", "Unit", "PO Qty", "Rate",
+               "Prev Qty", "Prev Amt", "This Qty", "This Amt",
+               "Upto Qty", "Upto Amt", "Bal Qty", "Bal Amt"]
+    table_data = [[Paragraph(f"<b>{h}</b>", cell_center) for h in headers]]
+
+    for li in line_items:
+        desc = li["description"][:150]
+        table_data.append([
+            Paragraph(str(li["sr_no"]), cell_center),
+            Paragraph(desc, cell_style),
+            Paragraph(li["unit"], cell_center),
+            Paragraph(f"{li['po_qty']:,.3f}", cell_right),
+            Paragraph(f"{li['rate']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_this']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_this']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
+            Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
+            Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
+        ])
+
+    col_widths = [10*mm, 55*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]
+    items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    items_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), GREEN_FILL),
+        ("GRID", (0,0), (-1,-1), 0.5, BORDER),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+        ("RIGHTPADDING", (0,0), (-1,-1), 3),
+    ]))
+    elements.append(items_table)
+    elements.append(Spacer(1, 10))
+
+    # Summary table
+    summary_rows = [
+        ["Supply value (this bill)", f"Rs. {float(ra.supply_value_this):,.2f}", False],
+        ["E&C value (this bill)", f"Rs. {float(ra.ec_value_this):,.2f}", False],
+        ["Taxable value", f"Rs. {float(ra.taxable_value):,.2f}", True],
+    ]
+    if float(ra.igst_amount) > 0:
+        summary_rows.append([f"IGST @ {project.igst_rate}%", f"Rs. {float(ra.igst_amount):,.2f}", False])
+    if float(ra.cgst_amount) > 0:
+        summary_rows.append([f"CGST @ {project.cgst_rate}%", f"Rs. {float(ra.cgst_amount):,.2f}", False])
+        summary_rows.append([f"SGST @ {project.sgst_rate}%", f"Rs. {float(ra.sgst_amount):,.2f}", False])
+    summary_rows.append(["Gross total", f"Rs. {float(ra.gross_total):,.2f}", True])
+    summary_rows.append([f"Less: Advance recovery ({project.pt_advance_pct}%)", f"Rs. {float(ra.advance_recovery):,.2f}", False])
+    if float(ra.retention_deduction) > 0:
+        summary_rows.append([f"Less: Retention ({project.pt_retention_pct}%)", f"Rs. {float(ra.retention_deduction):,.2f}", False])
+    summary_rows.append(["Net payable", f"Rs. {float(ra.net_payable):,.2f}", True])
+
+    summary_style   = ParagraphStyle("summary", parent=styles["Normal"], fontSize=9)
+    summary_style_b = ParagraphStyle("summaryb", parent=summary_style, fontName="Helvetica-Bold")
+    summary_right   = ParagraphStyle("summaryr", parent=summary_style, alignment=TA_RIGHT)
+    summary_right_b = ParagraphStyle("summaryrb", parent=summary_style_b, alignment=TA_RIGHT)
+
+    summary_data = []
+    for label, value, bold in summary_rows:
+        summary_data.append([
+            Paragraph(label, summary_style_b if bold else summary_style),
+            Paragraph(value, summary_right_b if bold else summary_right),
+        ])
+
+    summary_table = Table(summary_data, colWidths=[130*mm, 50*mm], hAlign="RIGHT")
+    sstyle_cmds = [
+        ("GRID", (0,0), (-1,-1), 0.4, BORDER),
+        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("BACKGROUND", (0, len(summary_data)-1), (-1, len(summary_data)-1), GREEN_FILL),
+    ]
+    summary_table.setStyle(TableStyle(sstyle_cmds))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph(
+        f"Amount in words: {amount_in_words(float(ra.net_payable))}", words_style))
+    elements.append(Spacer(1, 20))
+
+    # Signatory footer with stamp
+    try:
+        stamp_img = RLImage(STAMP_PATH, width=30*mm, height=30*mm)
+    except Exception:
+        stamp_img = Paragraph("", party_style)
+
+    footer_data = [[
+        Paragraph(f"For {project.client_name}<br/><br/><br/>Authorised Signatory", party_style),
+        [Paragraph(f"For {project.seller_name}", party_style),
+         stamp_img,
+         Paragraph("Authorised Signatory", party_style)],
+    ]]
+    footer_table = Table(footer_data, colWidths=[140*mm, 140*mm])
+    footer_table.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+    ]))
+    elements.append(footer_table)
+
+    doc.build(elements)
     tmp.close()
     return tmp.name
 
@@ -286,7 +383,9 @@ def generate_tax_invoice_pdf(ra, project):
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, HRFlowable,
+                                     Image as RLImage)
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
@@ -295,7 +394,6 @@ def generate_tax_invoice_pdf(ra, project):
     GREEN_FILL = colors.HexColor("#E1F5EE")
     GRAY_FILL  = colors.HexColor("#F1EFE8")
     BORDER     = colors.HexColor("#CCCCCC")
-    RED        = colors.HexColor("#D85A30")
 
     doc = SimpleDocTemplate(
         tmp.name, pagesize=A4,
@@ -307,26 +405,31 @@ def generate_tax_invoice_pdf(ra, project):
     def ps(name, **kw):
         return ParagraphStyle(name, parent=styles["Normal"], **kw)
 
-    title_s   = ps("ti", fontSize=13, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=GREEN)
-    sub_s     = ps("su", fontSize=8.5, alignment=TA_CENTER, textColor=colors.HexColor("#555555"))
-    hdr_s     = ps("hd", fontSize=8, fontName="Helvetica-Bold")
-    cell_s    = ps("ce", fontSize=8, leading=10)
-    cell_b    = ps("cb", fontSize=8, fontName="Helvetica-Bold", leading=10)
-    cell_r    = ps("cr", fontSize=8, alignment=TA_RIGHT)
-    cell_rb   = ps("crb", fontSize=8, fontName="Helvetica-Bold", alignment=TA_RIGHT)
-    cell_c    = ps("cc", fontSize=8, alignment=TA_CENTER)
-    small_s   = ps("sm", fontSize=7.5, textColor=colors.HexColor("#555555"))
-    footer_s  = ps("fo", fontSize=8, textColor=colors.HexColor("#444444"))
+    title_s  = ps("ti", fontSize=13, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=GREEN)
+    hdr_s    = ps("hd", fontSize=8, fontName="Helvetica-Bold")
+    cell_s   = ps("ce", fontSize=8, leading=10)
+    cell_b   = ps("cb", fontSize=8, fontName="Helvetica-Bold", leading=10)
+    cell_r   = ps("cr", fontSize=8, alignment=TA_RIGHT)
+    cell_rb  = ps("crb", fontSize=8, fontName="Helvetica-Bold", alignment=TA_RIGHT)
+    cell_c   = ps("cc", fontSize=8, alignment=TA_CENTER)
+    footer_s = ps("fo", fontSize=8, textColor=colors.HexColor("#444444"))
 
     elements = []
 
-    # ── Title ────────────────────────────────────────────────────────────────
+    # Logo header
+    try:
+        logo_img = RLImage(LOGO_FULL, width=50*mm, height=27*mm)
+        logo_img.hAlign = 'CENTER'
+        elements.append(logo_img)
+        elements.append(Spacer(1, 4))
+    except Exception:
+        pass
+
+    # Title — no IRN line
     elements.append(Paragraph("TAX INVOICE — RUNNING ACCOUNT (RA) BILL", title_s))
-    elements.append(Paragraph(
-        "E-invoice with IRN to be generated for this bill (PO clause 16)", sub_s))
     elements.append(Spacer(1, 4))
 
-    # ── Bill meta row ────────────────────────────────────────────────────────
+    # Bill meta row
     meta_data = [[
         Paragraph(f"<b>RA Bill No.:</b> {ra.ra_number}", cell_s),
         Paragraph(f"<b>Invoice No.:</b> {ra.invoice_no}", cell_s),
@@ -342,16 +445,16 @@ def generate_tax_invoice_pdf(ra, project):
     ]]
     meta_tbl = Table(meta_data, colWidths=[62*mm, 62*mm, 62*mm])
     meta_tbl.setStyle(TableStyle([
-        ("BOX",        (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",  (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
         ("BOTTOMPADDING",(0,0),(-1,-1),3),
-        ("LEFTPADDING",(0,0),(-1,-1),5),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
     ]))
     elements.append(meta_tbl)
     elements.append(Spacer(1, 5))
 
-    # ── Party details ────────────────────────────────────────────────────────
+    # Party details
     def party_block(title, name, addr, gstin, pan=None):
         lines = [f"<b>{title}</b>", f"<b>{name}</b>", addr or ""]
         if gstin: lines.append(f"GST No: {gstin}")
@@ -368,38 +471,32 @@ def generate_tax_invoice_pdf(ra, project):
     ]]
     party_tbl = Table(party_data, colWidths=[62*mm, 62*mm, 62*mm])
     party_tbl.setStyle(TableStyle([
-        ("BOX",        (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",  (0,0), (-1,-1), 0.3, BORDER),
-        ("VALIGN",     (0,0), (-1,-1), "TOP"),
-        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("VALIGN",      (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING",  (0,0), (-1,-1), 4),
         ("BOTTOMPADDING",(0,0),(-1,-1),4),
-        ("LEFTPADDING",(0,0),(-1,-1),5),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
     ]))
     elements.append(party_tbl)
     elements.append(Spacer(1, 6))
 
-    # ── Abstract of Bill ─────────────────────────────────────────────────────
+    # Abstract of Bill
     elements.append(Paragraph("<b>ABSTRACT OF BILL (Taxable Values)</b>", hdr_s))
     elements.append(Spacer(1, 3))
 
     order_val_p1 = float(getattr(project, "wo_value_supply", 0) or 0)
     order_val_p2 = float(getattr(project, "wo_value_ec", 0) or 0)
     order_total  = order_val_p1 + order_val_p2
-
-    sup_prev  = float(ra.supply_value_prev)
-    sup_this  = float(ra.supply_value_this)
-    sup_upto  = float(ra.supply_value_upto)
-    ec_prev   = float(ra.ec_value_prev)
-    ec_this   = float(ra.ec_value_this)
-    ec_upto   = float(ra.ec_value_upto)
-    tax_val   = float(ra.taxable_value)
-    igst      = float(ra.igst_amount)
-    cgst      = float(ra.cgst_amount)
-    sgst      = float(ra.sgst_amount)
-    gross     = float(ra.gross_total)
-    adv_rec   = float(ra.advance_recovery)
-    ret_ded   = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
-    net_pay   = float(ra.net_payable)
+    sup_prev = float(ra.supply_value_prev); sup_this = float(ra.supply_value_this)
+    sup_upto = float(ra.supply_value_upto)
+    ec_prev  = float(ra.ec_value_prev);  ec_this  = float(ra.ec_value_this)
+    ec_upto  = float(ra.ec_value_upto)
+    tax_val  = float(ra.taxable_value); igst = float(ra.igst_amount)
+    cgst = float(ra.cgst_amount); sgst = float(ra.sgst_amount)
+    gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
+    ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
+    net_pay  = float(ra.net_payable)
 
     def inr(v): return f"Rs. {v:,.2f}"
 
@@ -430,29 +527,27 @@ def generate_tax_invoice_pdf(ra, project):
     ]
     abs_tbl = Table(abs_data, colWidths=[65*mm, 30*mm, 35*mm, 30*mm, 26*mm])
     abs_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), GRAY_FILL),
-        ("BACKGROUND", (0,3), (-1,3), GREEN_FILL),
-        ("BOX",        (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",  (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
+        ("BACKGROUND",  (0,3), (-1,3), GREEN_FILL),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
         ("BOTTOMPADDING",(0,0),(-1,-1),3),
-        ("LEFTPADDING",(0,0),(-1,-1),4),
-        ("RIGHTPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0), (-1,-1), 4),
+        ("RIGHTPADDING",(0,0), (-1,-1), 4),
     ]))
     elements.append(abs_tbl)
     elements.append(Spacer(1, 4))
 
-    # ── Tax & Summary block ──────────────────────────────────────────────────
-    def summary_row(label, value, bold=False, color=None):
+    # Tax & Summary block
+    def summary_row(label, value, bold=False):
         ls = cell_b if bold else cell_s
         rs = cell_rb if bold else cell_r
-        p  = Paragraph(f"<b>{label}</b>" if bold else label, ls)
-        v  = Paragraph(f"<b>{inr(value)}</b>" if bold else inr(value), rs)
-        return [p, v]
+        return [Paragraph(f"<b>{label}</b>" if bold else label, ls),
+                Paragraph(f"<b>{inr(value)}</b>" if bold else inr(value), rs)]
 
     sum_data = []
-    if igst > 0:
-        sum_data.append(summary_row(f"IGST @ {project.igst_rate}%", igst))
+    if igst > 0: sum_data.append(summary_row(f"IGST @ {project.igst_rate}%", igst))
     if cgst > 0:
         sum_data.append(summary_row(f"CGST @ {project.cgst_rate}%", cgst))
         sum_data.append(summary_row(f"SGST @ {project.sgst_rate}%", sgst))
@@ -460,37 +555,43 @@ def generate_tax_invoice_pdf(ra, project):
     sum_data.append(summary_row(
         f"Less: Advance adjusted ({project.pt_advance_pct}% of Part-1 this bill)", adv_rec))
     if ret_ded > 0:
-        sum_data.append(summary_row(
-            f"Less: Retention ({project.pt_retention_pct}%)", ret_ded))
+        sum_data.append(summary_row(f"Less: Retention ({project.pt_retention_pct}%)", ret_ded))
     sum_data.append(summary_row("NET AMOUNT RECEIVABLE", net_pay, bold=True))
 
     sum_tbl = Table(sum_data, colWidths=[130*mm, 56*mm], hAlign="RIGHT")
     sstyle = [
-        ("BOX",        (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",  (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING", (0,0), (-1,-1), 3),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
         ("BOTTOMPADDING",(0,0),(-1,-1),3),
-        ("LEFTPADDING",(0,0),(-1,-1),5),
-        ("RIGHTPADDING",(0,0),(-1,-1),5),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+        ("RIGHTPADDING",(0,0), (-1,-1), 5),
+        ("BACKGROUND",  (0, len(sum_data)-1), (-1, len(sum_data)-1), GREEN_FILL),
     ]
-    # Highlight net payable row (last row)
-    sstyle.append(("BACKGROUND", (0, len(sum_data)-1), (-1, len(sum_data)-1), GREEN_FILL))
     sum_tbl.setStyle(TableStyle(sstyle))
     elements.append(sum_tbl)
     elements.append(Spacer(1, 6))
 
-    # ── Amount in words ──────────────────────────────────────────────────────
+    # Amount in words
     elements.append(Paragraph(
         f"<b>Invoice Value in Words:</b> {amount_in_words(gross)} (incl. GST)", cell_b))
     elements.append(Paragraph(
         f"<b>Net Amount Receivable in Words:</b> {amount_in_words(net_pay)}", cell_b))
     elements.append(Spacer(1, 8))
 
-    # ── Payment terms + signatory ─────────────────────────────────────────────
+    # Payment terms + signatory with stamp
     pay_terms = [
-        getattr(project, "pt_part1_terms", "20% advance (received) + 80% through 60-days usance LC from shipment date"),
-        getattr(project, "pt_part2_terms", "80% on installation + 20% on commissioning, pro-rata, 15 days from RA bill certification"),
+        getattr(project, "pt_part1_terms",
+                "20% advance (received) + 80% through 60-days usance LC from shipment date"),
+        getattr(project, "pt_part2_terms",
+                "80% on installation + 20% on commissioning, pro-rata, 15 days from RA bill certification"),
     ]
+
+    try:
+        ti_stamp = RLImage(STAMP_PATH, width=28*mm, height=28*mm)
+    except Exception:
+        ti_stamp = Paragraph("", footer_s)
+
     footer_data = [[
         Paragraph("<br/>".join([
             "<b>Payment Terms:</b>",
@@ -500,20 +601,20 @@ def generate_tax_invoice_pdf(ra, project):
             "Certified that the particulars given above are true and correct and the amount",
             "claimed is as per actual work executed.  E. & O. E.",
         ]), footer_s),
-        Paragraph(
-            "For <b>NISH TECHNO PROJECTS PRIVATE LIMITED</b>"
-            "<br/><br/><br/><br/>Authorised Signatory", footer_s),
+        [Paragraph("For <b>NISH TECHNO PROJECTS PRIVATE LIMITED</b>", footer_s),
+         ti_stamp,
+         Paragraph("Authorised Signatory", footer_s)],
     ]]
-    footer_tbl = Table(footer_data, colWidths=[100*mm, 86*mm])
-    footer_tbl.setStyle(TableStyle([
-        ("VALIGN",     (0,0), (-1,-1), "TOP"),
-        ("BOX",        (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",  (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING", (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING",(0,0),(-1,-1),20),
-        ("LEFTPADDING",(0,0),(-1,-1),6),
+    footer_table = Table(footer_data, colWidths=[100*mm, 86*mm])
+    footer_table.setStyle(TableStyle([
+        ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ("BOX",          (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",    (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
     ]))
-    elements.append(footer_tbl)
+    elements.append(footer_table)
 
     doc.build(elements)
     tmp.close()
@@ -525,9 +626,6 @@ def generate_tax_invoice_excel(ra, project):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Tax Invoice"
-
-    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-    from openpyxl.utils import get_column_letter
 
     thin  = Side(style="thin")
     bdr   = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -555,16 +653,25 @@ def generate_tax_invoice_excel(ra, project):
         ws.merge_cells(start_row=r, start_column=c1, end_row=r, end_column=c2)
         return sc(r, c1, val, bold, fill, align, size=size, color=color)
 
-    r = 1
+    # Logo in Excel (top-left)
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        xl_logo_ti = XLImage(LOGO_MARK)
+        xl_logo_ti.width  = 60
+        xl_logo_ti.height = 60
+        ws.add_image(xl_logo_ti, 'A1')
+        ws.row_dimensions[1].height = 48
+        ws.row_dimensions[2].height = 16
+    except Exception:
+        pass
+
+    r = 3
     merge(r, 1, 6, "TAX INVOICE — RUNNING ACCOUNT (RA) BILL",
           bold=True, fill=TEAL_FILL, size=13, color="FFFFFF")
     ws.row_dimensions[r].height = 24; r += 1
+    # IRN line removed
+    ws.row_dimensions[r].height = 4; r += 1
 
-    merge(r, 1, 6, "E-invoice with IRN to be generated for this bill (PO clause 16)",
-          fill=GRAY_FILL, size=9)
-    r += 1
-
-    # Meta row
     sc(r, 2, f"RA Bill No.: {ra.ra_number}", bold=True)
     sc(r, 3, f"Invoice No.: {ra.invoice_no}", bold=True)
     sc(r, 4, f"Invoice Date: {ra.invoice_date}", bold=True)
@@ -572,13 +679,12 @@ def generate_tax_invoice_excel(ra, project):
     r += 1
     sc(r, 2, f"W.O. No.: {project.wo_number}")
     sc(r, 3, f"Place of Supply: {project.place_of_supply}")
-    sc(r, 4, f"Reverse Charge: No")
+    sc(r, 4, "Reverse Charge: No")
     sc(r, 5, f"W.O. Date: {project.wo_date or ''}")
     r += 1
 
     ws.row_dimensions[r].height = 10; r += 1
 
-    # Party block
     headers = ["SELLER", "BUYER", "CONSIGNEE / SITE"]
     for i, h in enumerate(headers):
         sc(r, 2 + i, h, bold=True, fill=GRAY_FILL, align=C)
@@ -597,7 +703,6 @@ def generate_tax_invoice_excel(ra, project):
 
     ws.row_dimensions[r].height = 10; r += 1
 
-    # Abstract table
     merge(r, 1, 6, "ABSTRACT OF BILL (Taxable Values, Rs.)", bold=True, fill=GRAY_FILL, align=L)
     r += 1
 
@@ -617,8 +722,8 @@ def generate_tax_invoice_excel(ra, project):
     gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
     ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
     net_pay  = float(ra.net_payable)
-
     FMT = "#,##0.00"
+
     rows_data = [
         ("Part 1 — Balance Supply (SITC)", order_val_p1, sup_upto, sup_prev, sup_this),
         ("Part 2 — Installation & Commissioning", order_val_p2, ec_upto, ec_prev, ec_this),
@@ -635,7 +740,6 @@ def generate_tax_invoice_excel(ra, project):
 
     ws.row_dimensions[r].height = 8; r += 1
 
-    # Tax summary
     tax_rows = []
     if igst > 0: tax_rows.append((f"IGST @ {project.igst_rate}%", igst, False))
     if cgst > 0:
@@ -658,7 +762,6 @@ def generate_tax_invoice_excel(ra, project):
 
     ws.row_dimensions[r].height = 8; r += 1
 
-    # Amount in words
     merge(r, 1, 6, f"Invoice Value in Words: {amount_in_words(gross)} (incl. GST)",
           bold=True, align=L, size=9)
     r += 1
@@ -666,11 +769,21 @@ def generate_tax_invoice_excel(ra, project):
           bold=True, align=L, size=9)
     r += 1; ws.row_dimensions[r].height = 8; r += 1
 
-    # Footer
     sc(r, 2, "Certified that the particulars given above are true and correct "
              "and the amount claimed is as per actual work executed.  E. & O. E.", size=9)
     sc(r, 5, "For NISH TECHNO PROJECTS PRIVATE LIMITED", bold=True)
-    r += 4
+    r += 1
+
+    # Stamp in signatory area
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        stamp_xl = XLImage(STAMP_PATH)
+        stamp_xl.width  = 70
+        stamp_xl.height = 70
+        ws.add_image(stamp_xl, f'E{r}')
+    except Exception:
+        pass
+    r += 3
     sc(r, 5, "Authorised Signatory")
 
     out = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
@@ -684,9 +797,6 @@ def generate_reconciliation_excel(recon_items, project):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Reconciliation"
-
-    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-    from openpyxl.utils import get_column_letter
 
     thin = Side(style="thin")
     bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
