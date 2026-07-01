@@ -388,6 +388,38 @@ class RABillLine(db.Model):
         }
 
 
+
+
+class ReconciliationItem(db.Model):
+    """Frozen audit of old WO (Gharpure) billings vs new PO (BEIL Amd-3) disposition."""
+    __tablename__ = "reconciliation_items"
+    id             = db.Column(db.Integer, primary_key=True)
+    project_id     = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    site           = db.Column(db.String(50))
+    old_sr         = db.Column(db.String(20))
+    description    = db.Column(db.Text)
+    old_rate       = db.Column(db.Numeric(14, 2), default=0)
+    old_qty        = db.Column(db.Numeric(12, 3), default=0)
+    billed_supply  = db.Column(db.Numeric(14, 2), default=0)
+    billed_install = db.Column(db.Numeric(14, 2), default=0)
+    billed_comm    = db.Column(db.Numeric(14, 2), default=0)
+    total_billed   = db.Column(db.Numeric(14, 2), default=0)
+    disposition    = db.Column(db.String(200))
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id,
+            "site": self.site, "old_sr": self.old_sr,
+            "description": self.description,
+            "old_rate": float(self.old_rate or 0),
+            "old_qty": float(self.old_qty or 0),
+            "billed_supply": float(self.billed_supply or 0),
+            "billed_install": float(self.billed_install or 0),
+            "billed_comm": float(self.billed_comm or 0),
+            "total_billed": float(self.total_billed or 0),
+            "disposition": self.disposition or "",
+        }
+
 class Notification(db.Model):
     __tablename__ = "notifications"
     id          = db.Column(db.Integer, primary_key=True)

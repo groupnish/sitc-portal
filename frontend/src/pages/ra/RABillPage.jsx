@@ -62,6 +62,19 @@ export default function RABillPage() {
       }).catch(()=>toast.error('Download failed'))
   }
 
+  const downloadTaxInvoice = (id, type) => {
+    const url = type==='pdf' ? ra.taxInvoicePdfUrl(id) : ra.taxInvoiceXlsxUrl(id)
+    const token = localStorage.getItem('access_token')
+    fetch(url, { headers:{ Authorization:`Bearer ${token}` }})
+      .then(r => { if(!r.ok) throw new Error('Download failed'); return r.blob() })
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `TaxInvoice_${id}.${type==='pdf'?'pdf':'xlsx'}`
+        a.click()
+      }).catch(()=>toast.error('Tax Invoice download failed'))
+  }
+
   const updateStatus = async (id, status) => {
     try {
       await ra.status(id, { status })
@@ -154,10 +167,10 @@ export default function RABillPage() {
             <thead><tr>
               <th>RA no.</th><th>Invoice no.</th><th>Date</th>
               <th>Taxable</th><th>Net payable</th><th>Status</th>
-              <th>Download</th><th>WhatsApp</th><th>Action</th>
+              <th>RA Bill</th><th>Tax Invoice</th><th>WhatsApp</th><th>Action</th>
             </tr></thead>
             <tbody>
-              {raList.length===0 && <tr><td colSpan={9} className="empty">No RA bills yet. Compute and save your first bill above.</td></tr>}
+              {raList.length===0 && <tr><td colSpan={10} className="empty">No RA bills yet. Compute and save your first bill above.</td></tr>}
               {raList.map(bill=>(
                 <tr key={bill.id}>
                   <td style={{fontWeight:600}}>RA-{bill.ra_number}</td>
@@ -174,8 +187,14 @@ export default function RABillPage() {
                   </td>
                   <td>
                     <div style={{display:'flex',gap:4}}>
-                      <button className="btn btn-sm" onClick={()=>downloadFile(bill.id,'pdf')} title="Download PDF">PDF</button>
-                      <button className="btn btn-sm" onClick={()=>downloadFile(bill.id,'excel')} title="Download Excel">XLS</button>
+                      <button className="btn btn-sm" onClick={()=>downloadFile(bill.id,'pdf')} title="Download RA Bill PDF">PDF</button>
+                      <button className="btn btn-sm" onClick={()=>downloadFile(bill.id,'excel')} title="Download RA Bill Excel">XLS</button>
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{display:'flex',gap:4}}>
+                      <button className="btn btn-sm btn-primary" onClick={()=>downloadTaxInvoice(bill.id,'pdf')} title="Download Tax Invoice PDF" style={{background:'var(--purple)',borderColor:'var(--purple)'}}>INV PDF</button>
+                      <button className="btn btn-sm btn-primary" onClick={()=>downloadTaxInvoice(bill.id,'excel')} title="Download Tax Invoice Excel" style={{background:'var(--purple)',borderColor:'var(--purple)'}}>INV XLS</button>
                     </div>
                   </td>
                   <td>

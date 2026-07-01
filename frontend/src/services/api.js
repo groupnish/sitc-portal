@@ -48,13 +48,6 @@ export const boq = {
   bulk:   (pid,d) => api.post(`/boq/${pid}/bulk`, d),
   update: (id,d) => api.put(`/boq/item/${id}`, d),
   del:    id => api.delete(`/boq/item/${id}`),
-  importExcel: (pid, file, preview=false) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return api.post(`/boq/${pid}/import-excel?preview=${preview}`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-  },
 }
 export const grn = {
   list:   pid => api.get(`/grn/${pid}`),
@@ -70,16 +63,18 @@ export const dispatch = {
 export const site = {
   list:   pid => api.get(`/site/${pid}`),
   update: (pid,d) => api.post(`/site/${pid}/update`, d),
-  entries:    (pid,boqItemId) => api.get(`/site/entries/${pid}/${boqItemId}`),
-  editEntry:  (id,d) => api.put(`/site/entry/${id}`, d),
 }
 export const ra = {
-  list:    pid => api.get(`/ra/${pid}`),
-  compute: (pid,d) => api.post(`/ra/${pid}/compute`, d),
-  save:    (pid,d) => api.post(`/ra/${pid}/save`, d),
-  status:  (id,d) => api.put(`/ra/${id}/status`, d),
-  pdfUrl:  id => `${API_URL}/ra/${id}/export/pdf`,
-  xlsxUrl: id => `${API_URL}/ra/${id}/export/excel`,
+  list:              pid => api.get(`/ra/${pid}`),
+  compute:           (pid,d) => api.post(`/ra/${pid}/compute`, d),
+  save:              (pid,d) => api.post(`/ra/${pid}/save`, d),
+  status:            (id,d) => api.put(`/ra/${id}/status`, d),
+  pdfUrl:            id => `${API_URL}/ra/${id}/export/pdf`,
+  xlsxUrl:           id => `${API_URL}/ra/${id}/export/excel`,
+  taxInvoicePdfUrl:  id => `${API_URL}/ra/${id}/export/tax-invoice/pdf`,
+  taxInvoiceXlsxUrl: id => `${API_URL}/ra/${id}/export/tax-invoice/excel`,
+  reconciliation:    pid => api.get(`/ra/reconciliation/${pid}`),
+  reconciliationXlsxUrl: pid => `${API_URL}/ra/reconciliation/${pid}/export/excel`,
 }
 export const users = {
   list:       () => api.get('/users/'),

@@ -92,6 +92,9 @@ export default function Layout() {
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/ra" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.receipt}/> RA bill
           </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/reconciliation" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.list}/> Reconciliation
+          </NavLink>
         </>}
 
         {isSite && <>

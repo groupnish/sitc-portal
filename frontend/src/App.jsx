@@ -13,6 +13,7 @@ import UsersPage from './pages/admin/UsersPage'
 import ProjectsPage from './pages/admin/ProjectsPage'
 import BOQPage from './pages/admin/BOQPage'
 import ProfilePage from './pages/ProfilePage'
+import ReconciliationPage from './pages/accounts/ReconciliationPage'
 
 function PrivateRoute({ children, roles }) {
   const { user, loading } = useAuth()
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="dispatch"       element={<PrivateRoute roles={['scm']}><DispatchPage /></PrivateRoute>} />
         <Route path="invoice"        element={<PrivateRoute roles={['accounts']}><InvoiceListPage /></PrivateRoute>} />
         <Route path="ra"             element={<PrivateRoute roles={['accounts']}><RABillPage /></PrivateRoute>} />
+        <Route path="reconciliation" element={<PrivateRoute roles={['accounts']}><ReconciliationPage /></PrivateRoute>} />
         <Route path="installation"   element={<PrivateRoute roles={['site']}><InstallationPage /></PrivateRoute>} />
         <Route path="commissioning"  element={<PrivateRoute roles={['site']}><CommissioningPage /></PrivateRoute>} />
         <Route path="users"          element={<PrivateRoute roles={['admin']}><UsersPage /></PrivateRoute>} />

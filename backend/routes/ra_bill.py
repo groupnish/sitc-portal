@@ -5,9 +5,11 @@ The "current" entries are those added AFTER the last RA bill was saved.
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.models import (Project, BOQItem, User, RABill, RABillLine,
-                            SiteProgress, DispatchNote, db)
+                            SiteProgress, db)
 from services.notifications import notify_ra_generated
-from services.export import generate_ra_excel, generate_ra_pdf
+from services.export import (generate_ra_excel, generate_ra_pdf,
+                             generate_tax_invoice_pdf, generate_tax_invoice_excel,
+                             generate_reconciliation_excel)
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -52,25 +54,7 @@ def compute_ra(pid):
             project_id=pid, boq_item_id=item.id
         ).all()
 
-        if item.item_type == "supply":
-            # Part 1 — Supply billing is driven by DISPATCHED quantity, not site progress.
-            # Site team logs installation/commissioning separately for Part 2 items only.
-            all_dispatch = DispatchNote.query.filter_by(
-                project_id=pid, boq_item_id=item.id
-            ).all()
-            if prev_ra_date:
-                prev_dispatch = [d for d in all_dispatch if d.created_at <= prev_ra_date]
-                curr_dispatch = [d for d in all_dispatch if d.created_at > prev_ra_date]
-            else:
-                prev_dispatch = []
-                curr_dispatch = all_dispatch
-
-            qty_prev_total = sum(Decimal(str(d.qty_dispatched)) for d in prev_dispatch)
-            qty_curr       = sum(Decimal(str(d.qty_dispatched)) for d in curr_dispatch)
-            qty_upto       = qty_prev_total + qty_curr
-            qty_balance    = max(po_qty - qty_upto, Decimal("0"))
-
-        elif item.item_type == "erection":
+        if item.item_type in ["supply", "erection"]:
             # Previous: entries up to last RA bill date
             if prev_ra_date:
                 prev_entries = [e for e in all_entries if e.updated_at <= prev_ra_date]
@@ -239,6 +223,69 @@ def export_pdf(rid):
                      download_name=f"RA_{ra.ra_number}_{ra.invoice_no}.pdf",
                      mimetype="application/pdf")
 
+
+
+@ra_bp.route("/<int:rid>/export/tax-invoice/pdf", methods=["GET"])
+@jwt_required()
+def export_tax_invoice_pdf(rid):
+    from flask import send_file
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+    ra = RABill.query.get_or_404(rid)
+    project = Project.query.get(ra.project_id)
+    path = generate_tax_invoice_pdf(ra, project)
+    if not path:
+        return jsonify({"error": "Tax invoice PDF generation failed"}), 500
+    return send_file(path, as_attachment=True,
+                     download_name=f"TaxInvoice_{ra.ra_number}_{ra.invoice_no}.pdf",
+                     mimetype="application/pdf")
+
+
+@ra_bp.route("/<int:rid>/export/tax-invoice/excel", methods=["GET"])
+@jwt_required()
+def export_tax_invoice_excel(rid):
+    from flask import send_file
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+    ra = RABill.query.get_or_404(rid)
+    project = Project.query.get(ra.project_id)
+    path = generate_tax_invoice_excel(ra, project)
+    return send_file(path, as_attachment=True,
+                     download_name=f"TaxInvoice_{ra.ra_number}_{ra.invoice_no}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@ra_bp.route("/reconciliation/<int:pid>", methods=["GET"])
+@jwt_required()
+def get_reconciliation(pid):
+    """Return reconciliation data for a project (admin + accounts only)."""
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+    from models.models import ReconciliationItem
+    items = ReconciliationItem.query.filter_by(project_id=pid)                                    .order_by(ReconciliationItem.id).all()
+    if not items:
+        return jsonify([])
+    return jsonify([i.to_dict() for i in items])
+
+
+@ra_bp.route("/reconciliation/<int:pid>/export/excel", methods=["GET"])
+@jwt_required()
+def export_reconciliation_excel(pid):
+    from flask import send_file
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+    from models.models import ReconciliationItem
+    project = Project.query.get_or_404(pid)
+    items = ReconciliationItem.query.filter_by(project_id=pid)                                    .order_by(ReconciliationItem.id).all()
+    recon_data = [i.to_dict() for i in items]
+    path = generate_reconciliation_excel(recon_data, project)
+    return send_file(path, as_attachment=True,
+                     download_name=f"Reconciliation_{project.code}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @ra_bp.route("/<int:rid>/status", methods=["PUT"])
 @jwt_required()
