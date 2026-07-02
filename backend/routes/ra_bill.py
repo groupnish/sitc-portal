@@ -5,7 +5,7 @@ The "current" entries are those added AFTER the last RA bill was saved.
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.models import (Project, BOQItem, User, RABill, RABillLine,
-                            SiteProgress, db)
+                            SiteProgress, DispatchNote, ReconciliationItem, db)
 from services.notifications import notify_ra_generated
 from services.export import (generate_ra_excel, generate_ra_pdf,
                              generate_tax_invoice_pdf, generate_tax_invoice_excel,
@@ -17,6 +17,12 @@ ra_bp = Blueprint("ra", __name__)
 
 def current_user():
     return User.query.get(int(get_jwt_identity()))
+
+def admin_required():
+    u = current_user()
+    if not u or u.role != "admin":
+        return jsonify({"error": "Admin access required"}), 403
+    return None
 
 
 @ra_bp.route("/<int:pid>", methods=["GET"])
@@ -286,6 +292,38 @@ def export_reconciliation_excel(pid):
     return send_file(path, as_attachment=True,
                      download_name=f"Reconciliation_{project.code}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@ra_bp.route("/<int:rid>/delete", methods=["DELETE"])
+@jwt_required()
+def delete_ra(rid):
+    """Admin only — permanently delete an RA bill and its line items."""
+    err = admin_required()
+    if err: return err
+    bill = RABill.query.get_or_404(rid)
+    project = Project.query.get(bill.project_id)
+    RABillLine.query.filter_by(ra_bill_id=rid).delete()
+    db.session.delete(bill)
+    last = RABill.query.filter_by(project_id=bill.project_id)                       .order_by(RABill.ra_number.desc()).first()
+    project.current_ra_no = (last.ra_number + 1) if last else 1
+    db.session.commit()
+    return jsonify({"message": "RA Bill deleted"}), 200
+
+
+@ra_bp.route("/challan/<int:dn_id>/pdf", methods=["GET"])
+@jwt_required()
+def export_challan_pdf(dn_id):
+    """Generate Delivery Challan PDF for a dispatch note."""
+    from flask import send_file
+    from services.export import generate_challan_pdf
+    dn = DispatchNote.query.get_or_404(dn_id)
+    project = Project.query.get(dn.project_id)
+    path = generate_challan_pdf(dn, project)
+    if not path:
+        return jsonify({"error": "Challan PDF generation failed"}), 500
+    return send_file(path, as_attachment=True,
+                     download_name=f"Challan_{dn.dn_number}.pdf",
+                     mimetype="application/pdf")
 
 @ra_bp.route("/<int:rid>/status", methods=["PUT"])
 @jwt_required()

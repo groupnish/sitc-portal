@@ -228,12 +228,36 @@ def list_dispatches(pid):
 def create_dispatch(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
+    # Fix 3: Validate dispatch qty does not exceed total received (GRN)
+    boq_item_id = data["boq_item_id"]
+    qty_dispatched_req = float(data["qty_dispatched"])
+
+    total_received = db.session.query(
+        db.func.coalesce(db.func.sum(GRN.qty_received), 0)
+    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
+    total_received = float(total_received)
+
+    total_dispatched = db.session.query(
+        db.func.coalesce(db.func.sum(DispatchNote.qty_dispatched), 0)
+    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
+    total_dispatched = float(total_dispatched)
+
+    available = total_received - total_dispatched
+    if qty_dispatched_req > available:
+        boq = BOQItem.query.get(boq_item_id)
+        sr = boq.sr_no if boq else "Item"
+        return jsonify({
+            "error": f"{sr}: Cannot dispatch {qty_dispatched_req} — "
+                     f"only {available:.3f} available "
+                     f"(received {total_received:.3f}, already dispatched {total_dispatched:.3f})"
+        }), 400
+
     dn = DispatchNote(
         project_id=pid,
         dn_number=next_dn_number(pid),
         dispatch_date=date.fromisoformat(data["dispatch_date"]),
-        boq_item_id=data["boq_item_id"],
-        qty_dispatched=data["qty_dispatched"],
+        boq_item_id=boq_item_id,
+        qty_dispatched=qty_dispatched_req,
         site_destination=data.get("site_destination",""),
         vehicle_no=data.get("vehicle_no",""),
         driver_name=data.get("driver_name",""),
