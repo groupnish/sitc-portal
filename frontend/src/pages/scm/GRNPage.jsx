@@ -23,6 +23,11 @@ export default function GRNPage() {
   const [tab, setTab]               = useState('grn')
   const isAccounts = user?.role === 'accounts'
 
+  // Derive selected BOQ item for inline PO qty display + frontend validation
+  const selectedBoqItem = boqItems.find(i => String(i.id) === String(form.boq_item_id)) || null
+  const selectedPoQty   = selectedBoqItem ? selectedBoqItem.po_qty : null
+  const selectedUnit    = selectedBoqItem ? selectedBoqItem.unit : ''
+
   useEffect(() => {
     if (!activeProject) return
     boq.list(activeProject.id).then(r => setBoqItems(r.data))
@@ -45,6 +50,10 @@ export default function GRNPage() {
     if (!form.boq_item_id) { toast.error('Select a BOQ item'); return }
     if (!form.qty_received || parseFloat(form.qty_received) <= 0) {
       toast.error('Enter a valid quantity'); return
+    }
+    if (selectedPoQty !== null && parseFloat(form.qty_received) > selectedPoQty) {
+      toast.error(`Quantity cannot exceed BOQ PO qty of ${selectedPoQty} ${selectedUnit}`)
+      return
     }
     if (submitting) return
     setSubmitting(true)
@@ -123,14 +132,36 @@ export default function GRNPage() {
                   </option>
                 ))}
               </select>
+              {selectedBoqItem && (
+                <div style={{
+                  marginTop: 6, padding: '6px 10px',
+                  background: 'var(--teal-l)', borderRadius: 6,
+                  fontSize: 12, color: 'var(--teal)', fontWeight: 500
+                }}>
+                  BOQ PO Qty: <strong>{selectedPoQty} {selectedUnit}</strong>
+                  &nbsp;·&nbsp; {selectedBoqItem.description.substring(0, 60)}
+                </div>
+              )}
             </div>
             <div className="form-grid">
               <div className="form-group">
                 <label className="form-label">Quantity received *</label>
                 <input className="form-input" type="number" required
                   min="0.001" step="any" placeholder="0"
+                  max={selectedPoQty || undefined}
                   value={form.qty_received}
-                  onChange={e => set('qty_received', e.target.value)} />
+                  onChange={e => {
+                    const val = e.target.value
+                    set('qty_received', val)
+                    if (selectedPoQty !== null && parseFloat(val) > selectedPoQty) {
+                      toast.error(`Max allowed: ${selectedPoQty} ${selectedUnit} (BOQ PO qty)`, {id:'qty-warn'})
+                    }
+                  }} />
+                {selectedPoQty !== null && form.qty_received && parseFloat(form.qty_received) > selectedPoQty && (
+                  <div style={{ color: 'var(--coral)', fontSize: 12, marginTop: 4 }}>
+                    ⚠ Exceeds BOQ PO qty of {selectedPoQty} {selectedUnit}
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Challan / DC number</label>
