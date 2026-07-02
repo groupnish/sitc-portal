@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { dispatch, boq, users } from '../../services/api'
+import { dispatch, boq, users, ra } from '../../services/api'
 import api from '../../services/api'
 import { openWhatsApp, dispatchWhatsAppMsg } from '../../utils/whatsapp'
 import toast from 'react-hot-toast'
@@ -88,6 +88,19 @@ export default function DispatchPage() {
   }
 
   const sendWA = (dn, contact) => openWhatsApp(contact.phone, dispatchWhatsAppMsg(dn, activeProject))
+
+  const downloadChallan = (dn) => {
+    const url = ra.challanUrl(dn.id)
+    const token = localStorage.getItem('access_token')
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => { if (!r.ok) throw new Error('Failed'); return r.blob() })
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `Challan_${dn.dn_number}.pdf`
+        a.click()
+      }).catch(() => toast.error('Challan download failed'))
+  }
 
   if (!activeProject) return <div className="alert alert-warning">Select a project first.</div>
 
@@ -177,13 +190,13 @@ export default function DispatchPage() {
             <thead>
               <tr>
                 <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Site</th>
-                <th>Qty</th><th>Amount</th><th>Invoice</th><th>WhatsApp</th>
+                <th>Qty</th><th>Amount</th><th>Invoice</th><th>Challan</th><th>WhatsApp</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={isAdmin ? 9 : 8} className="empty">Loading...</td></tr>}
+              {loading && <tr><td colSpan={isAdmin ? 10 : 9} className="empty">Loading...</td></tr>}
               {!loading && dnList.length === 0 && (
-                <tr><td colSpan={isAdmin ? 9 : 8} className="empty">No dispatches yet.</td></tr>
+                <tr><td colSpan={isAdmin ? 10 : 9} className="empty">No dispatches yet.</td></tr>
               )}
               {dnList.map(d => (
                 <tr key={d.id}>
@@ -202,6 +215,14 @@ export default function DispatchPage() {
                     <span className={`badge ${d.invoice_status === 'invoiced' ? 'badge-green' : 'badge-amber'}`}>
                       {d.invoice_status}
                     </span>
+                  </td>
+                  <td>
+                    <button className="btn btn-sm"
+                      onClick={() => downloadChallan(d)}
+                      title="Download Delivery Challan PDF"
+                      style={{fontSize:11}}>
+                      Challan
+                    </button>
                   </td>
                   <td>
                     {contacts.length > 0 && (

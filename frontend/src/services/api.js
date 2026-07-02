@@ -78,12 +78,14 @@ export const ra = {
   compute:           (pid,d) => api.post(`/ra/${pid}/compute`, d),
   save:              (pid,d) => api.post(`/ra/${pid}/save`, d),
   status:            (id,d) => api.put(`/ra/${id}/status`, d),
+  delete:            id => api.delete(`/ra/${id}/delete`),
   pdfUrl:            id => `${API_URL}/ra/${id}/export/pdf`,
   xlsxUrl:           id => `${API_URL}/ra/${id}/export/excel`,
   taxInvoicePdfUrl:  id => `${API_URL}/ra/${id}/export/tax-invoice/pdf`,
   taxInvoiceXlsxUrl: id => `${API_URL}/ra/${id}/export/tax-invoice/excel`,
   reconciliation:    pid => api.get(`/ra/reconciliation/${pid}`),
   reconciliationXlsxUrl: pid => `${API_URL}/ra/reconciliation/${pid}/export/excel`,
+  challanUrl:        dnId => `${API_URL}/ra/challan/${dnId}/pdf`,
 }
 export const users = {
   list:       () => api.get('/users/'),

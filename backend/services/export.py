@@ -865,3 +865,208 @@ def generate_reconciliation_excel(recon_items, project):
     wb.save(out.name)
     out.close()
     return out.name
+
+
+def generate_challan_pdf(dn, project):
+    """Generate Delivery Challan PDF for a dispatch note using ReportLab."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, Image as RLImage)
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+
+    GREEN      = colors.HexColor("#0F6E56")
+    GREEN_FILL = colors.HexColor("#E1F5EE")
+    GRAY_FILL  = colors.HexColor("#F1EFE8")
+    BORDER     = colors.HexColor("#CCCCCC")
+
+    doc = SimpleDocTemplate(
+        tmp.name, pagesize=A4,
+        topMargin=10*mm, bottomMargin=15*mm,
+        leftMargin=15*mm, rightMargin=15*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    def ps(name, **kw):
+        return ParagraphStyle(name, parent=styles["Normal"], **kw)
+
+    title_s  = ps("ti", fontSize=14, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER, textColor=GREEN, spaceAfter=2)
+    sub_s    = ps("su", fontSize=9, alignment=TA_CENTER,
+                   textColor=colors.HexColor("#555555"))
+    cell_s   = ps("ce", fontSize=9, leading=12)
+    cell_b   = ps("cb", fontSize=9, fontName="Helvetica-Bold", leading=12)
+    cell_r   = ps("cr", fontSize=9, alignment=TA_RIGHT)
+    cell_c   = ps("cc", fontSize=9, alignment=TA_CENTER)
+    footer_s = ps("fo", fontSize=8, textColor=colors.HexColor("#444444"))
+    note_s   = ps("no", fontSize=7.5, textColor=colors.HexColor("#666666"), leading=10)
+
+    elements = []
+
+    # Logo
+    try:
+        logo_img = RLImage(LOGO_FULL, width=45*mm, height=24*mm)
+        logo_img.hAlign = "CENTER"
+        elements.append(logo_img)
+        elements.append(Spacer(1, 3))
+    except Exception:
+        pass
+
+    elements.append(Paragraph("DELIVERY CHALLAN", title_s))
+    elements.append(Paragraph("(For Material Outward — Not a Tax Invoice)", sub_s))
+    elements.append(Spacer(1, 6))
+
+    # Challan meta
+    boq = dn.boq_item
+    rate = float(boq.rate) if boq else 0
+    qty  = float(dn.qty_dispatched)
+    amount = rate * qty
+
+    meta_data = [[
+        Paragraph(f"<b>Challan No.:</b> {dn.dn_number}", cell_s),
+        Paragraph(f"<b>Date:</b> {dn.dispatch_date}", cell_s),
+        Paragraph(f"<b>WO No.:</b> {project.wo_number or ''}", cell_s),
+    ],[
+        Paragraph(f"<b>Vehicle No.:</b> {dn.vehicle_no or '—'}", cell_s),
+        Paragraph(f"<b>Driver:</b> {dn.driver_name or '—'}", cell_s),
+        Paragraph(f"<b>LR No.:</b> {dn.lr_number or '—'}", cell_s),
+    ]]
+    meta_tbl = Table(meta_data, colWidths=[60*mm, 60*mm, 60*mm])
+    meta_tbl.setStyle(TableStyle([
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1),3),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+    ]))
+    elements.append(meta_tbl)
+    elements.append(Spacer(1, 5))
+
+    # From / To party blocks
+    from_to = [[
+        Paragraph(
+            f"<b>FROM (Consignor):</b><br/>"
+            f"<b>{project.seller_name}</b><br/>"
+            f"{project.seller_address or ''}<br/>"
+            f"GSTIN: {project.seller_gstin or ''}",
+            cell_s),
+        Paragraph(
+            f"<b>TO (Consignee):</b><br/>"
+            f"<b>{project.client_name}</b><br/>"
+            f"{project.site_name or project.client_name}<br/>"
+            f"{project.site_address or ''}<br/>"
+            f"Site: {dn.site_destination or ''}",
+            cell_s),
+    ]]
+    ft_tbl = Table(from_to, colWidths=[90*mm, 90*mm])
+    ft_tbl.setStyle(TableStyle([
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("VALIGN",      (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING",  (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+    ]))
+    elements.append(ft_tbl)
+    elements.append(Spacer(1, 6))
+
+    # Item table
+    elements.append(Paragraph("<b>MATERIAL DETAILS</b>", cell_b))
+    elements.append(Spacer(1, 3))
+
+    item_headers = [
+        Paragraph("<b>Sr.</b>", cell_c),
+        Paragraph("<b>Item No.</b>", cell_c),
+        Paragraph("<b>Description</b>", cell_b),
+        Paragraph("<b>HSN/SAC</b>", cell_c),
+        Paragraph("<b>Qty</b>", cell_c),
+        Paragraph("<b>Unit</b>", cell_c),
+        Paragraph("<b>Rate (Rs.)</b>", cell_r),
+        Paragraph("<b>Amount (Rs.)</b>", cell_r),
+    ]
+    item_rows = [item_headers, [
+        Paragraph("1", cell_c),
+        Paragraph(boq.sr_no if boq else "", cell_c),
+        Paragraph(boq.description[:200] if boq else "", cell_s),
+        Paragraph(project.hsn_sac_code or "9954", cell_c),
+        Paragraph(str(qty), cell_c),
+        Paragraph(boq.unit if boq else "", cell_c),
+        Paragraph(f"{rate:,.2f}", cell_r),
+        Paragraph(f"{amount:,.2f}", cell_r),
+    ], [
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("<b>TOTAL</b>", cell_b),
+        Paragraph("", cell_c),
+        Paragraph(f"<b>{qty}</b>", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph(f"<b>{amount:,.2f}</b>", cell_r),
+    ]]
+
+    item_tbl = Table(item_rows, colWidths=[8*mm, 22*mm, 60*mm, 18*mm, 14*mm, 14*mm, 22*mm, 22*mm])
+    item_tbl.setStyle(TableStyle([
+        ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
+        ("BACKGROUND",  (0,2), (-1,2), GREEN_FILL),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("VALIGN",      (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",  (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+        ("RIGHTPADDING",(0,0), (-1,-1), 3),
+    ]))
+    elements.append(item_tbl)
+    elements.append(Spacer(1, 6))
+
+    # Amount in words
+    elements.append(Paragraph(
+        f"<b>Amount in words:</b> {amount_in_words(amount)} (excl. GST)", cell_b))
+
+    if dn.remarks:
+        elements.append(Spacer(1, 3))
+        elements.append(Paragraph(f"<b>Remarks:</b> {dn.remarks}", cell_s))
+
+    elements.append(Spacer(1, 8))
+
+    # Note
+    elements.append(Paragraph(
+        "Note: This is a Delivery Challan only. This is NOT a Tax Invoice. "
+        "GST is not applicable on this document. Invoice will be raised separately.",
+        note_s))
+    elements.append(Spacer(1, 20))
+
+    # Signatory
+    try:
+        stamp_img = RLImage(STAMP_PATH, width=28*mm, height=28*mm)
+    except Exception:
+        stamp_img = Paragraph("", footer_s)
+
+    sign_data = [[
+        Paragraph(
+            "Received the above material in good condition.<br/><br/><br/>"
+            "Receiver's Signature & Stamp:<br/><br/><br/>"
+            "Name: ________________  Date: ________________",
+            footer_s),
+        [Paragraph(f"For {project.seller_name}", footer_s),
+         stamp_img,
+         Paragraph("Authorised Signatory", footer_s)],
+    ]]
+    sign_tbl = Table(sign_data, colWidths=[95*mm, 85*mm])
+    sign_tbl.setStyle(TableStyle([
+        ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ("BOX",          (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",    (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+    ]))
+    elements.append(sign_tbl)
+
+    doc.build(elements)
+    tmp.close()
+    return tmp.name

@@ -8,7 +8,8 @@ const today = () => new Date().toISOString().split('T')[0]
 const fmt = n => `₹${Number(n).toLocaleString('en-IN', {minimumFractionDigits:2})}`
 
 export default function RABillPage() {
-  const { activeProject } = useAuth()
+  const { activeProject, user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [raList, setRaList]     = useState([])
   const [computed, setComputed] = useState(null)
   const [contacts, setContacts] = useState([])
@@ -81,6 +82,15 @@ export default function RABillPage() {
       toast.success(`Status updated to ${status}`)
       loadRA()
     } catch { toast.error('Error') }
+  }
+
+  const deleteRA = async (bill) => {
+    if (!confirm(`Permanently delete RA Bill #${bill.ra_number} (${bill.invoice_no})? This cannot be undone.`)) return
+    try {
+      await ra.delete(bill.id)
+      toast.success(`RA Bill #${bill.ra_number} deleted`)
+      loadRA()
+    } catch(e) { toast.error(e.response?.data?.error || 'Delete failed') }
   }
 
   const sendWA = (bill, contact) => openWhatsApp(contact.phone, raWhatsAppMsg(bill, activeProject))
@@ -167,10 +177,10 @@ export default function RABillPage() {
             <thead><tr>
               <th>RA no.</th><th>Invoice no.</th><th>Date</th>
               <th>Taxable</th><th>Net payable</th><th>Status</th>
-              <th>RA Bill</th><th>Tax Invoice</th><th>WhatsApp</th><th>Action</th>
+              <th>RA Bill</th><th>Tax Invoice</th><th>WhatsApp</th><th>Action</th><th></th>
             </tr></thead>
             <tbody>
-              {raList.length===0 && <tr><td colSpan={10} className="empty">No RA bills yet. Compute and save your first bill above.</td></tr>}
+              {raList.length===0 && <tr><td colSpan={11} className="empty">No RA bills yet. Compute and save your first bill above.</td></tr>}
               {raList.map(bill=>(
                 <tr key={bill.id}>
                   <td style={{fontWeight:600}}>RA-{bill.ra_number}</td>
@@ -217,6 +227,15 @@ export default function RABillPage() {
                       <button className="btn btn-sm" onClick={()=>updateStatus(bill.id,'paid')}>Mark paid</button>
                     )}
                   </td>
+                  {isAdmin && (
+                    <td>
+                      <button className="btn btn-sm btn-danger"
+                        onClick={()=>deleteRA(bill)}
+                        title="Delete RA Bill permanently">
+                        Delete
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

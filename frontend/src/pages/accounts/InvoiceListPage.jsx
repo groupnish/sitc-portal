@@ -6,8 +6,10 @@ import toast from 'react-hot-toast'
 export default function InvoiceListPage() {
   const { activeProject } = useAuth()
   const [pending, setPending]   = useState([])
+  const [invoiced, setInvoiced] = useState([])
   const [all, setAll]           = useState([])
   const [loading, setLoading]   = useState(false)
+  const [tab, setTab]           = useState('pending')
 
   useEffect(() => {
     if (!activeProject) return
@@ -18,6 +20,7 @@ export default function InvoiceListPage() {
     dispatch.list(activeProject.id).then(r => {
       setAll(r.data)
       setPending(r.data.filter(d => d.invoice_status === 'pending'))
+      setInvoiced(r.data.filter(d => d.invoice_status === 'invoiced'))
     })
   }
 
@@ -29,7 +32,8 @@ export default function InvoiceListPage() {
     } catch { toast.error('Error') }
   }
 
-  const totalPending = pending.reduce((a,d) => a + Number(d.amount), 0)
+  const totalPending  = pending.reduce((a,d) => a + Number(d.amount), 0)
+  const totalInvoiced = invoiced.reduce((a,d) => a + Number(d.amount), 0)
 
   const exportCSV = () => {
     const rows = [
@@ -49,69 +53,128 @@ export default function InvoiceListPage() {
 
   return (
     <div>
-      <div className="stat-grid" style={{gridTemplateColumns:'repeat(3,1fr)'}}>
+      <div className="stat-grid" style={{gridTemplateColumns:'repeat(4,1fr)'}}>
         <div className="stat-card">
-          <div className="stat-label">Pending invoice items</div>
-          <div className="stat-value">{pending.length}</div>
-          <div className="stat-sub">dispatches not yet invoiced</div>
+          <div className="stat-label">Pending items</div>
+          <div className="stat-value" style={{color:'var(--amber)'}}>{pending.length}</div>
+          <div className="stat-sub">not yet invoiced</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Pending value</div>
-          <div className="stat-value">₹{(totalPending/100000).toFixed(2)}L</div>
+          <div className="stat-value" style={{color:'var(--amber)'}}>₹{(totalPending/100000).toFixed(2)}L</div>
           <div className="stat-sub">excl. GST</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Total dispatches</div>
-          <div className="stat-value">{all.length}</div>
-          <div className="stat-sub">all time</div>
+          <div className="stat-label">Invoiced items</div>
+          <div className="stat-value" style={{color:'var(--teal)'}}>{invoiced.length}</div>
+          <div className="stat-sub">marked as invoiced</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Invoiced value</div>
+          <div className="stat-value" style={{color:'var(--teal)'}}>₹{(totalInvoiced/100000).toFixed(2)}L</div>
+          <div className="stat-sub">excl. GST</div>
         </div>
       </div>
 
       <div className="card">
         <div className="card-header">
-          <span className="card-title">Pending invoice list — enter in ERP to raise invoice</span>
-          <div style={{display:'flex',gap:8}}>
-            <button className="btn btn-sm" onClick={exportCSV}>Export CSV</button>
+          <div style={{display:'flex',gap:0,borderBottom:'none'}}>
+            <button
+              className={`btn btn-sm${tab==='pending'?' btn-primary':''}`}
+              style={{borderRadius:'6px 0 0 6px'}}
+              onClick={()=>setTab('pending')}>
+              Pending ({pending.length})
+            </button>
+            <button
+              className={`btn btn-sm${tab==='invoiced'?' btn-primary':''}`}
+              style={{borderRadius:'0 6px 6px 0'}}
+              onClick={()=>setTab('invoiced')}>
+              Invoiced History ({invoiced.length})
+            </button>
           </div>
+          <button className="btn btn-sm" onClick={exportCSV}>Export CSV</button>
         </div>
-        <div className="alert alert-info" style={{margin:'12px 16px 0'}}>
-          These items have been dispatched but not yet invoiced. Export to CSV and enter in your ERP. Then mark each as invoiced.
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead><tr>
-              <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th><th>Unit</th>
-              <th>Rate (₹)</th><th>Amount (₹)</th><th>Site</th><th>Action</th>
-            </tr></thead>
-            <tbody>
-              {pending.length===0 && <tr><td colSpan={9} className="empty">No pending invoice items. All dispatches have been invoiced.</td></tr>}
-              {pending.map(d=>(
-                <tr key={d.id}>
-                  <td style={{fontWeight:500}}>{d.dn_number}</td>
-                  <td>{d.dispatch_date}</td>
-                  <td><span style={{fontWeight:500}}>{d.boq_item_sr}</span><br/><span style={{fontSize:11,color:'var(--text-s)'}}>{d.boq_item_desc.substring(0,50)}</span></td>
-                  <td>{d.qty_dispatched}</td>
-                  <td>{d.unit}</td>
-                  <td>{Number(d.boq_item_rate).toLocaleString('en-IN')}</td>
-                  <td style={{fontWeight:500}}>₹{Number(d.amount).toLocaleString('en-IN')}</td>
-                  <td style={{fontSize:11}}>{d.site_destination?.split('—')[0]}</td>
-                  <td>
-                    <button className="btn btn-sm btn-primary" onClick={()=>markInvoiced(d.id)}>
-                      Mark invoiced
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {pending.length > 0 && (
-                <tr style={{background:'var(--teal-l)'}}>
-                  <td colSpan={6} style={{fontWeight:600,textAlign:'right'}}>Total pending (excl. GST)</td>
-                  <td style={{fontWeight:600}}>₹{totalPending.toLocaleString('en-IN')}</td>
-                  <td colSpan={2}></td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+
+        {tab === 'pending' && <>
+          <div className="alert alert-info" style={{margin:'12px 16px 0'}}>
+            These items have been dispatched but not yet invoiced. Export to CSV and enter in your ERP. Then mark each as invoiced.
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th><th>Unit</th>
+                <th>Rate (₹)</th><th>Amount (₹)</th><th>Site</th><th>Action</th>
+              </tr></thead>
+              <tbody>
+                {pending.length===0 && <tr><td colSpan={9} className="empty">No pending invoice items. All dispatches have been invoiced.</td></tr>}
+                {pending.map(d=>(
+                  <tr key={d.id}>
+                    <td style={{fontWeight:500}}>{d.dn_number}</td>
+                    <td>{d.dispatch_date}</td>
+                    <td><span style={{fontWeight:500}}>{d.boq_item_sr}</span><br/><span style={{fontSize:11,color:'var(--text-s)'}}>{d.boq_item_desc.substring(0,50)}</span></td>
+                    <td>{d.qty_dispatched}</td>
+                    <td>{d.unit}</td>
+                    <td>{Number(d.boq_item_rate).toLocaleString('en-IN')}</td>
+                    <td style={{fontWeight:500}}>₹{Number(d.amount).toLocaleString('en-IN')}</td>
+                    <td style={{fontSize:11}}>{d.site_destination?.split('—')[0]}</td>
+                    <td>
+                      <button className="btn btn-sm btn-primary" onClick={()=>markInvoiced(d.id)}>
+                        Mark invoiced
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {pending.length > 0 && (
+                  <tr style={{background:'var(--teal-l)'}}>
+                    <td colSpan={6} style={{fontWeight:600,textAlign:'right'}}>Total pending (excl. GST)</td>
+                    <td style={{fontWeight:600}}>₹{totalPending.toLocaleString('en-IN')}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>}
+
+        {tab === 'invoiced' && <>
+          <div className="alert alert-success" style={{margin:'12px 16px 0'}}>
+            These dispatches have been marked as invoiced. Showing full invoice history.
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th><th>Unit</th>
+                <th>Rate (₹)</th><th>Amount (₹)</th><th>Site</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {invoiced.length===0 && <tr><td colSpan={9} className="empty">No invoiced dispatches yet.</td></tr>}
+                {invoiced.map(d=>(
+                  <tr key={d.id}>
+                    <td style={{fontWeight:500}}>{d.dn_number}</td>
+                    <td>{d.dispatch_date}</td>
+                    <td>
+                      <span style={{fontWeight:500}}>{d.boq_item_sr}</span><br/>
+                      <span style={{fontSize:11,color:'var(--text-s)'}}>{d.boq_item_desc.substring(0,50)}</span>
+                    </td>
+                    <td>{d.qty_dispatched}</td>
+                    <td>{d.unit}</td>
+                    <td>{Number(d.boq_item_rate).toLocaleString('en-IN')}</td>
+                    <td style={{fontWeight:500}}>₹{Number(d.amount).toLocaleString('en-IN')}</td>
+                    <td style={{fontSize:11}}>{d.site_destination?.split('—')[0]}</td>
+                    <td><span className="badge badge-green">invoiced</span></td>
+                  </tr>
+                ))}
+                {invoiced.length > 0 && (
+                  <tr style={{background:'var(--teal-l)'}}>
+                    <td colSpan={6} style={{fontWeight:600,textAlign:'right'}}>Total invoiced (excl. GST)</td>
+                    <td style={{fontWeight:600}}>₹{totalInvoiced.toLocaleString('en-IN')}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>}
       </div>
     </div>
   )

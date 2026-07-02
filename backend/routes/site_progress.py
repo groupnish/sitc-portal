@@ -342,13 +342,7 @@ def compute_ra(pid):
         total_installed   = sum(Decimal(str(e.qty_installed)) for e in all_progress)
         total_commissioned = sum(Decimal(str(e.qty_commissioned)) for e in all_progress)
 
-        if item.item_type == "supply":
-            # Part 1 — Supply billing is driven by dispatched quantity, not site progress
-            all_dispatch = DispatchNote.query.filter_by(project_id=pid, boq_item_id=item.id).all()
-            qty_upto = sum(Decimal(str(d.qty_dispatched)) for d in all_dispatch)
-            print(f"[RA DEBUG] item {item.sr_no} (id={item.id}, type={item.item_type}) — "
-                  f"dispatch rows found: {len(all_dispatch)}, qty_upto: {qty_upto}")
-        elif item.item_type == "erection":
+        if item.item_type in ["supply", "erection"]:
             qty_upto = total_installed
         else:
             qty_upto = total_commissioned
@@ -525,3 +519,34 @@ def mark_all_read():
     Notification.query.filter_by(user_id=uid, is_read=False).update({"is_read": True})
     db.session.commit()
     return jsonify({"message": "All marked read"})
+
+
+@site_bp.route("/entry/<int:eid>", methods=["PUT"])
+@jwt_required()
+def update_progress_entry(eid):
+    """Admin-only: correct a previously logged site progress entry."""
+    err = admin_required()
+    if err: return err
+    entry = SiteProgress.query.get_or_404(eid)
+    data = request.get_json()
+    if "qty_installed" in data:
+        entry.qty_installed = data["qty_installed"]
+    if "qty_commissioned" in data:
+        entry.qty_commissioned = data["qty_commissioned"]
+    if "progress_date" in data and data["progress_date"]:
+        from datetime import date as date_cls
+        entry.progress_date = date_cls.fromisoformat(data["progress_date"])
+    if "notes" in data:
+        entry.notes = data["notes"]
+    db.session.commit()
+    return jsonify(entry.to_dict())
+
+
+@site_bp.route("/entries/<int:pid>/<int:boq_item_id>", methods=["GET"])
+@jwt_required()
+def list_progress_entries(pid, boq_item_id):
+    """Full entry history for one BOQ item (used by admin edit UI)."""
+    entries = SiteProgress.query.filter_by(
+        project_id=pid, boq_item_id=boq_item_id
+    ).order_by(SiteProgress.progress_date.desc(), SiteProgress.id.desc()).all()
+    return jsonify([e.to_dict() for e in entries])
