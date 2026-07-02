@@ -84,7 +84,7 @@ export default function Layout() {
           </NavLink>
         </>}
 
-        {isAccounts && <>
+        {isAccounts && !isAdmin && <>
           <div className="nav-section">SCM (View)</div>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/grn" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.truck}/> Material inward
