@@ -48,6 +48,13 @@ export const boq = {
   bulk:   (pid,d) => api.post(`/boq/${pid}/bulk`, d),
   update: (id,d) => api.put(`/boq/item/${id}`, d),
   del:    id => api.delete(`/boq/item/${id}`),
+  importExcel: (pid, file, preview=false) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/boq/${pid}/import-excel?preview=${preview}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
 }
 export const grn = {
   list:   pid => api.get(`/grn/${pid}`),
@@ -61,8 +68,10 @@ export const dispatch = {
   markInvoiced:id => api.put(`/dispatch/${id}/mark-invoiced`),
 }
 export const site = {
-  list:   pid => api.get(`/site/${pid}`),
-  update: (pid,d) => api.post(`/site/${pid}/update`, d),
+  list:       pid => api.get(`/site/${pid}`),
+  update:     (pid,d) => api.post(`/site/${pid}/update`, d),
+  entries:    (pid,boqItemId) => api.get(`/site/entries/${pid}/${boqItemId}`),
+  editEntry:  (id,d) => api.put(`/site/entry/${id}`, d),
 }
 export const ra = {
   list:              pid => api.get(`/ra/${pid}`),
