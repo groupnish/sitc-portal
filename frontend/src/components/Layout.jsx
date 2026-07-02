@@ -85,6 +85,20 @@ export default function Layout() {
         </>}
 
         {isAccounts && <>
+          <div className="nav-section">SCM (View)</div>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/grn" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.truck}/> Material inward
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/dispatch" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.package}/> Dispatch / outward
+          </NavLink>
+          <div className="nav-section">Site (View)</div>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/installation" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.factory}/> Installation
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/commissioning" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.settings}/> Commissioning
+          </NavLink>
           <div className="nav-section">Accounts</div>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/invoice" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.invoice}/> Invoice list

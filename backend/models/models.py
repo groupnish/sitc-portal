@@ -84,6 +84,10 @@ class Project(db.Model):
     # Advance received
     advance_received_incl_gst = db.Column(db.Numeric(14, 2), default=0)
 
+    # Project type determines billing workflow
+    project_type   = db.Column(db.String(20), default="work_contract")
+    # project_type: work_contract | purchase_order
+
     # Invoice series
     invoice_prefix = db.Column(db.String(30), default="INV")
     current_ra_no  = db.Column(db.Integer, default=1)
@@ -118,6 +122,7 @@ class Project(db.Model):
             "pt_ld_pct": float(self.pt_ld_pct),
             "pt_notes": self.pt_notes,
             "advance_received_incl_gst": float(self.advance_received_incl_gst),
+            "project_type": self.project_type or "work_contract",
             "invoice_prefix": self.invoice_prefix,
             "current_ra_no": self.current_ra_no,
         }
@@ -136,6 +141,7 @@ class BOQItem(db.Model):
     site_zone   = db.Column(db.String(50))
     item_type   = db.Column(db.String(20), default="supply")
     # item_type: supply | erection | commissioning
+    hsn_code    = db.Column(db.String(20))          # HSN/SAC code per item
     milestone_type = db.Column(db.String(20), default="standard")
     sort_order  = db.Column(db.Integer, default=0)
     is_active   = db.Column(db.Boolean, default=True)
@@ -147,6 +153,7 @@ class BOQItem(db.Model):
             "po_qty": float(self.po_qty), "unit": self.unit,
             "rate": float(self.rate), "amount": float(self.amount),
             "site_zone": self.site_zone, "item_type": self.item_type,
+            "hsn_code": self.hsn_code or "",
             "milestone_type": self.milestone_type, "sort_order": self.sort_order,
         }
 
@@ -161,6 +168,7 @@ class GRN(db.Model):
     qty_received = db.Column(db.Numeric(12, 3), nullable=False)
     vendor_name  = db.Column(db.String(200))
     challan_no   = db.Column(db.String(100))
+    hsn_code     = db.Column(db.String(20))   # HSN/SAC code at time of receipt
     vehicle_no   = db.Column(db.String(30))
     remarks      = db.Column(db.Text)
     created_by   = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -191,6 +199,7 @@ class GRN(db.Model):
             "qty_received": float(self.qty_received),
             "unit": boq_unit,
             "vendor_name": self.vendor_name, "challan_no": self.challan_no,
+            "hsn_code": self.hsn_code or "",
             "vehicle_no": self.vehicle_no, "remarks": self.remarks,
             "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(), "status": self.status,
@@ -209,6 +218,9 @@ class DispatchNote(db.Model):
     vehicle_no    = db.Column(db.String(30))
     driver_name   = db.Column(db.String(100))
     lr_number     = db.Column(db.String(50))
+    bc_challan_no = db.Column(db.String(50))   # Business Central Challan No.
+    bc_invoice_no = db.Column(db.String(50))   # Business Central Invoice No.
+    eway_bill_no  = db.Column(db.String(50))   # E-Way Bill No.
     remarks       = db.Column(db.Text)
     created_by    = db.Column(db.Integer, db.ForeignKey("users.id"))
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
@@ -244,7 +256,11 @@ class DispatchNote(db.Model):
             "amount": amount,
             "site_destination": self.site_destination,
             "vehicle_no": self.vehicle_no, "driver_name": self.driver_name,
-            "lr_number": self.lr_number, "remarks": self.remarks,
+            "lr_number": self.lr_number,
+            "bc_challan_no": self.bc_challan_no or "",
+            "bc_invoice_no": self.bc_invoice_no or "",
+            "eway_bill_no": self.eway_bill_no or "",
+            "remarks": self.remarks,
             "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(),
             "invoice_status": self.invoice_status,

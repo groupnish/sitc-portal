@@ -4,7 +4,7 @@ import { boq } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import toast from 'react-hot-toast'
 
-const BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_zone:'MPS SITE', item_type:'supply' }
+const BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_zone:'MPS SITE', item_type:'supply', hsn_code:'' }
 const ZONES = ['MPS SITE','STP SITE','SPS SITE','GENERAL']
 const TYPES = ['supply','erection','commissioning']
 
@@ -320,6 +320,11 @@ export function BOQPage() {
                   {TYPES.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">HSN / SAC Code</label>
+                <input className="form-input" value={form.hsn_code||''}
+                  onChange={e => set('hsn_code', e.target.value)} placeholder="e.g. 8537" />
+              </div>
               <button className="btn btn-primary" type="submit">Add item</button>
             </form>
           </div>
@@ -369,6 +374,7 @@ export function BOQPage() {
                 <th>Description</th>
                 <th>Zone</th>
                 <th>Type</th>
+                <th>HSN</th>
                 <th>Qty</th>
                 <th>Unit</th>
                 <th>Rate</th>
@@ -394,6 +400,7 @@ export function BOQPage() {
                         {i.item_type}
                       </span>
                     </td>
+                    <td style={{fontSize:11}}>{i.hsn_code||'—'}</td>
                     <td>{i.po_qty}</td>
                     <td>{i.unit}</td>
                     <td>{Number(i.rate).toLocaleString('en-IN')}</td>

@@ -32,13 +32,13 @@ export default function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="grn"            element={<PrivateRoute roles={['scm']}><GRNPage /></PrivateRoute>} />
-        <Route path="dispatch"       element={<PrivateRoute roles={['scm']}><DispatchPage /></PrivateRoute>} />
+        <Route path="grn"            element={<PrivateRoute roles={['scm','accounts']}><GRNPage /></PrivateRoute>} />
+        <Route path="dispatch"       element={<PrivateRoute roles={['scm','accounts']}><DispatchPage /></PrivateRoute>} />
         <Route path="invoice"        element={<PrivateRoute roles={['accounts']}><InvoiceListPage /></PrivateRoute>} />
         <Route path="ra"             element={<PrivateRoute roles={['accounts']}><RABillPage /></PrivateRoute>} />
         <Route path="reconciliation" element={<PrivateRoute roles={['accounts']}><ReconciliationPage /></PrivateRoute>} />
-        <Route path="installation"   element={<PrivateRoute roles={['site']}><InstallationPage /></PrivateRoute>} />
-        <Route path="commissioning"  element={<PrivateRoute roles={['site']}><CommissioningPage /></PrivateRoute>} />
+        <Route path="installation"   element={<PrivateRoute roles={['site','accounts']}><InstallationPage /></PrivateRoute>} />
+        <Route path="commissioning"  element={<PrivateRoute roles={['site','accounts']}><CommissioningPage /></PrivateRoute>} />
         <Route path="users"          element={<PrivateRoute roles={['admin']}><UsersPage /></PrivateRoute>} />
         <Route path="projects"       element={<PrivateRoute roles={['admin']}><ProjectsPage /></PrivateRoute>} />
         <Route path="boq"            element={<PrivateRoute roles={['admin']}><BOQPage /></PrivateRoute>} />

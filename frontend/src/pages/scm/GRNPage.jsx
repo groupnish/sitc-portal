@@ -9,17 +9,19 @@ const today = () => new Date().toISOString().split('T')[0]
 
 const EMPTY_FORM = {
   grn_date: today(), boq_item_id: '', qty_received: '',
-  vendor_name: '', challan_no: '', vehicle_no: '', remarks: ''
+  vendor_name: '', challan_no: '', hsn_code: '', vehicle_no: '', remarks: ''
 }
 
 export default function GRNPage() {
-  const { activeProject, isAdmin } = useAuth()
+  const { activeProject, isAdmin, user } = useAuth()
   const [boqItems, setBoqItems]     = useState([])
   const [grnList, setGrnList]       = useState([])
   const [contacts, setContacts]     = useState([])
   const [loading, setLoading]       = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm]             = useState(EMPTY_FORM)
+  const [tab, setTab]               = useState('grn')
+  const isAccounts = user?.role === 'accounts'
 
   useEffect(() => {
     if (!activeProject) return
@@ -50,7 +52,8 @@ export default function GRNPage() {
       // Fire and forget the create — don't rely on response body
       await api.post(`/grn/${activeProject.id}`, {
         ...form,
-        qty_received: parseFloat(form.qty_received)
+        qty_received: parseFloat(form.qty_received),
+        hsn_code: form.hsn_code || '',
       })
       // Reset form immediately on any 2xx response
       setForm({ ...EMPTY_FORM, grn_date: today() })
@@ -90,7 +93,7 @@ export default function GRNPage() {
 
   return (
     <div>
-      <div className="card">
+      {!isAccounts && <div className="card">
         <div className="card-header">
           <span className="card-title">Create GRN — material inward</span>
         </div>
@@ -135,6 +138,12 @@ export default function GRNPage() {
                   placeholder="DC/2026/001" value={form.challan_no}
                   onChange={e => set('challan_no', e.target.value)} />
               </div>
+              <div className="form-group">
+                <label className="form-label">HSN / SAC Code</label>
+                <input className="form-input" type="text"
+                  placeholder="e.g. 8537" value={form.hsn_code}
+                  onChange={e => set('hsn_code', e.target.value)} />
+              </div>
             </div>
             <div className="form-grid">
               <div className="form-group">
@@ -158,9 +167,71 @@ export default function GRNPage() {
             </button>
           </form>
         </div>
+      </div>}
+
+      {/* Tab switcher */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 12 }}>
+        <button className={`btn btn-sm${tab==='grn'?' btn-primary':''}`}
+          style={{ borderRadius: '6px 0 0 6px' }} onClick={() => setTab('grn')}>
+          GRN Register ({grnList.length})
+        </button>
+        <button className={`btn btn-sm${tab==='boq'?' btn-primary':''}`}
+          style={{ borderRadius: '0 6px 6px 0' }} onClick={() => setTab('boq')}>
+          BOQ Qty Status
+        </button>
       </div>
 
-      <div className="card">
+      {tab === 'boq' && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">BOQ quantity status — received vs PO qty (supply items)</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item No.</th><th>Description</th><th>Unit</th>
+                  <th style={{textAlign:'right'}}>PO Qty</th>
+                  <th style={{textAlign:'right'}}>Total Received</th>
+                  <th style={{textAlign:'right'}}>Balance to Receive</th>
+                  <th style={{minWidth:120}}>Receipt Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {boqItems.filter(i => i.item_type === 'supply').map(item => {
+                  const received = grnList
+                    .filter(g => g.boq_item_id === item.id)
+                    .reduce((a, g) => a + g.qty_received, 0)
+                  const balance = Math.max(item.po_qty - received, 0)
+                  const pct = item.po_qty > 0 ? Math.min(Math.round(received / item.po_qty * 100), 100) : 0
+                  return (
+                    <tr key={item.id}>
+                      <td style={{fontWeight:500}}>{item.sr_no}</td>
+                      <td style={{fontSize:12,maxWidth:200}}>{item.description.substring(0,70)}</td>
+                      <td>{item.unit}</td>
+                      <td style={{textAlign:'right'}}>{item.po_qty}</td>
+                      <td style={{textAlign:'right',color:received>0?'var(--teal)':'var(--text-s)'}}>{received.toFixed(3)}</td>
+                      <td style={{textAlign:'right',color:balance===0?'var(--teal)':'var(--amber)',fontWeight:500}}>{balance.toFixed(3)}</td>
+                      <td>
+                        <div style={{fontSize:11,marginBottom:3,display:'flex',justifyContent:'space-between'}}>
+                          <span>{pct}%</span>
+                          <span style={{color:'var(--text-s)'}}>{pct===100?'✓ Complete':'Pending'}</span>
+                        </div>
+                        <div className="progress-bar"><div className="progress-fill" style={{width:`${pct}%`}}/></div>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {boqItems.filter(i=>i.item_type==='supply').length===0 && (
+                  <tr><td colSpan={7} className="empty">No supply items in BOQ.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'grn' && <div className="card">
         <div className="card-header">
           <span className="card-title">GRN register ({grnList.length})</span>
           <button className="btn btn-sm" onClick={loadGRNs}>↻ Refresh</button>
@@ -170,7 +241,7 @@ export default function GRNPage() {
             <thead>
               <tr>
                 <th>GRN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th>
-                <th>Vendor</th><th>Challan</th><th>Status</th>
+                <th>Vendor</th><th>Challan</th><th>HSN</th><th>Status</th>
                 <th>WhatsApp</th>
                 {isAdmin && <th>Action</th>}
               </tr>
@@ -221,7 +292,7 @@ export default function GRNPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -6,7 +6,7 @@ import toast from 'react-hot-toast'
 const BLANK = {
   code:'',name:'',client_name:'',client_address:'',client_gstin:'',client_pan:'',
   seller_name:'',seller_address:'',seller_gstin:'',seller_pan:'',
-  wo_number:'',wo_date:'',wo_value:'',amendment_no:'',place_of_supply:'',hsn_sac_code:'9954',
+  wo_number:'',wo_date:'',wo_value:'',amendment_no:'',place_of_supply:'',hsn_sac_code:'9954',project_type:'work_contract',
   site_name:'',site_address:'',
   igst_rate:18,cgst_rate:0,sgst_rate:0,
   pt_advance_pct:0,pt_lc_pct:0,pt_installation_pct:0,pt_commissioning_pct:0,pt_retention_pct:0,pt_ld_pct:0,
@@ -74,6 +74,16 @@ export default function ProjectsPage() {
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Project code *</label><input className="form-input" required value={form.code} onChange={e=>set('code',e.target.value)} placeholder="PROJ-001" /></div>
                   <div className="form-group"><label className="form-label">Invoice prefix</label><input className="form-input" value={form.invoice_prefix} onChange={e=>set('invoice_prefix',e.target.value)} placeholder="INV" /></div>
+                  <div className="form-group">
+                    <label className="form-label">Project type</label>
+                    <select className="form-select" value={form.project_type||'work_contract'} onChange={e=>set('project_type',e.target.value)}>
+                      <option value="work_contract">Work Contract (RA Bill + Tax Invoice)</option>
+                      <option value="purchase_order">Purchase Order (Item-wise Tax Invoice)</option>
+                    </select>
+                    <div style={{fontSize:11,color:'var(--text-s)',marginTop:3}}>
+                      Work Contract → RA Bill workflow. Purchase Order → item-wise invoice from Dispatch list.
+                    </div>
+                  </div>
                 </div>
                 <div className="form-group" style={{marginBottom:12}}><label className="form-label">Project name *</label><input className="form-input" required value={form.name} onChange={e=>set('name',e.target.value)} /></div>
                 <div className="form-grid">

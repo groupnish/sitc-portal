@@ -187,6 +187,26 @@ def list_grns(pid):
 def create_grn(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
+    # Validate GRN qty does not exceed BOQ PO qty
+    grn_boq_item_id = data["boq_item_id"]
+    grn_qty_req = float(data["qty_received"])
+
+    boq_item_check = BOQItem.query.get(grn_boq_item_id)
+    if boq_item_check:
+        boq_po_qty = float(boq_item_check.po_qty)
+        total_already_received = db.session.query(
+            db.func.coalesce(db.func.sum(GRN.qty_received), 0)
+        ).filter_by(project_id=pid, boq_item_id=grn_boq_item_id).scalar()
+        total_already_received = float(total_already_received)
+
+        if grn_qty_req + total_already_received > boq_po_qty:
+            available_to_receive = boq_po_qty - total_already_received
+            return jsonify({
+                "error": f"{boq_item_check.sr_no}: Cannot receive {grn_qty_req} — "
+                         f"BOQ PO qty is {boq_po_qty}, already received {total_already_received:.3f}, "
+                         f"available to receive: {available_to_receive:.3f}"
+            }), 400
+
     grn = GRN(
         project_id=pid,
         grn_number=next_grn_number(pid),
@@ -195,6 +215,7 @@ def create_grn(pid):
         qty_received=data["qty_received"],
         vendor_name=data.get("vendor_name",""),
         challan_no=data.get("challan_no",""),
+        hsn_code=data.get("hsn_code",""),
         vehicle_no=data.get("vehicle_no",""),
         remarks=data.get("remarks",""),
         created_by=int(get_jwt_identity())
@@ -228,36 +249,15 @@ def list_dispatches(pid):
 def create_dispatch(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
-    # Fix 3: Validate dispatch qty does not exceed total received (GRN)
-    boq_item_id = data["boq_item_id"]
-    qty_dispatched_req = float(data["qty_dispatched"])
-
-    total_received = db.session.query(
-        db.func.coalesce(db.func.sum(GRN.qty_received), 0)
-    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
-    total_received = float(total_received)
-
-    total_dispatched = db.session.query(
-        db.func.coalesce(db.func.sum(DispatchNote.qty_dispatched), 0)
-    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
-    total_dispatched = float(total_dispatched)
-
-    available = total_received - total_dispatched
-    if qty_dispatched_req > available:
-        boq = BOQItem.query.get(boq_item_id)
-        sr = boq.sr_no if boq else "Item"
-        return jsonify({
-            "error": f"{sr}: Cannot dispatch {qty_dispatched_req} — "
-                     f"only {available:.3f} available "
-                     f"(received {total_received:.3f}, already dispatched {total_dispatched:.3f})"
-        }), 400
-
     dn = DispatchNote(
         project_id=pid,
         dn_number=next_dn_number(pid),
         dispatch_date=date.fromisoformat(data["dispatch_date"]),
-        boq_item_id=boq_item_id,
-        qty_dispatched=qty_dispatched_req,
+        boq_item_id=data["boq_item_id"],
+        qty_dispatched=data["qty_dispatched"],
+        bc_challan_no=data.get("bc_challan_no",""),
+        bc_invoice_no=data.get("bc_invoice_no",""),
+        eway_bill_no=data.get("eway_bill_no",""),
         site_destination=data.get("site_destination",""),
         vehicle_no=data.get("vehicle_no",""),
         driver_name=data.get("driver_name",""),
@@ -544,11 +544,9 @@ def mark_all_read():
     db.session.commit()
     return jsonify({"message": "All marked read"})
 
-
 @site_bp.route("/entry/<int:eid>", methods=["PUT"])
 @jwt_required()
 def update_progress_entry(eid):
-    """Admin-only: correct a previously logged site progress entry."""
     err = admin_required()
     if err: return err
     entry = SiteProgress.query.get_or_404(eid)
@@ -569,7 +567,6 @@ def update_progress_entry(eid):
 @site_bp.route("/entries/<int:pid>/<int:boq_item_id>", methods=["GET"])
 @jwt_required()
 def list_progress_entries(pid, boq_item_id):
-    """Full entry history for one BOQ item (used by admin edit UI)."""
     entries = SiteProgress.query.filter_by(
         project_id=pid, boq_item_id=boq_item_id
     ).order_by(SiteProgress.progress_date.desc(), SiteProgress.id.desc()).all()

@@ -16,11 +16,13 @@ const SITES = [
 
 const EMPTY_FORM = {
   dispatch_date: today(), boq_item_id: '', qty_dispatched: '',
-  site_destination: '', vehicle_no: '', driver_name: '', lr_number: '', remarks: ''
+  site_destination: '', vehicle_no: '', driver_name: '', lr_number: '',
+  bc_challan_no: '', bc_invoice_no: '', eway_bill_no: '', remarks: ''
 }
 
 export default function DispatchPage() {
-  const { activeProject, isAdmin } = useAuth()
+  const { activeProject, isAdmin, user } = useAuth()
+  const isAccounts = user?.role === 'accounts'
   const [boqItems, setBoqItems]     = useState([])
   const [dnList, setDnList]         = useState([])
   const [contacts, setContacts]     = useState([])
@@ -106,7 +108,7 @@ export default function DispatchPage() {
 
   return (
     <div>
-      <div className="card">
+      {!isAccounts && <div className="card">
         <div className="card-header">
           <span className="card-title">Create dispatch note — material outward</span>
         </div>
@@ -165,6 +167,25 @@ export default function DispatchPage() {
                   value={form.lr_number} onChange={e => set('lr_number', e.target.value)} />
               </div>
             </div>
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">BC Challan No.</label>
+                <input className="form-input" type="text" placeholder="Business Central Challan No."
+                  value={form.bc_challan_no} onChange={e => set('bc_challan_no', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">BC Invoice No.</label>
+                <input className="form-input" type="text" placeholder="Business Central Invoice No."
+                  value={form.bc_invoice_no} onChange={e => set('bc_invoice_no', e.target.value)} />
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">E-Way Bill No.</label>
+                <input className="form-input" type="text" placeholder="E-Way Bill No."
+                  value={form.eway_bill_no} onChange={e => set('eway_bill_no', e.target.value)} />
+              </div>
+            </div>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label className="form-label">Remarks</label>
               <input className="form-input" type="text"
@@ -178,7 +199,7 @@ export default function DispatchPage() {
             </button>
           </form>
         </div>
-      </div>
+      </div>}
 
       <div className="card">
         <div className="card-header">
@@ -190,13 +211,13 @@ export default function DispatchPage() {
             <thead>
               <tr>
                 <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Site</th>
-                <th>Qty</th><th>Amount</th><th>Invoice</th><th>Challan</th><th>WhatsApp</th>
+                <th>Qty</th><th>Amount</th><th>Invoice</th><th>BC Challan</th><th>E-Way Bill</th><th>Challan PDF</th><th>WhatsApp</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={isAdmin ? 10 : 9} className="empty">Loading...</td></tr>}
+              {loading && <tr><td colSpan={isAdmin ? 12 : 11} className="empty">Loading...</td></tr>}
               {!loading && dnList.length === 0 && (
-                <tr><td colSpan={isAdmin ? 10 : 9} className="empty">No dispatches yet.</td></tr>
+                <tr><td colSpan={isAdmin ? 12 : 11} className="empty">No dispatches yet.</td></tr>
               )}
               {dnList.map(d => (
                 <tr key={d.id}>
@@ -216,6 +237,8 @@ export default function DispatchPage() {
                       {d.invoice_status}
                     </span>
                   </td>
+                  <td style={{fontSize:11}}>{d.bc_challan_no || '—'}</td>
+                  <td style={{fontSize:11}}>{d.eway_bill_no || '—'}</td>
                   <td>
                     <button className="btn btn-sm"
                       onClick={() => downloadChallan(d)}
