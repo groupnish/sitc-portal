@@ -187,14 +187,33 @@ def list_grns(pid):
 def create_grn(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
+    # Validate GRN qty does not exceed BOQ PO qty
+    grn_boq_item_id = data["boq_item_id"]
+    grn_qty_req = float(data["qty_received"])
+    boq_item_check = BOQItem.query.get(grn_boq_item_id)
+    if boq_item_check:
+        boq_po_qty = float(boq_item_check.po_qty)
+        total_already_received = db.session.query(
+            db.func.coalesce(db.func.sum(GRN.qty_received), 0)
+        ).filter_by(project_id=pid, boq_item_id=grn_boq_item_id).scalar()
+        total_already_received = float(total_already_received)
+        if grn_qty_req + total_already_received > boq_po_qty:
+            available = boq_po_qty - total_already_received
+            return jsonify({
+                "error": f"{boq_item_check.sr_no}: Cannot receive {grn_qty_req} — "
+                         f"BOQ PO qty is {boq_po_qty}, already received {total_already_received:.3f}, "
+                         f"balance to receive: {max(available,0):.3f}"
+            }), 400
+
     grn = GRN(
         project_id=pid,
         grn_number=next_grn_number(pid),
         grn_date=date.fromisoformat(data["grn_date"]),
-        boq_item_id=data["boq_item_id"],
-        qty_received=data["qty_received"],
+        boq_item_id=grn_boq_item_id,
+        qty_received=grn_qty_req,
         vendor_name=data.get("vendor_name",""),
         challan_no=data.get("challan_no",""),
+        hsn_code=data.get("hsn_code",""),
         vehicle_no=data.get("vehicle_no",""),
         remarks=data.get("remarks",""),
         created_by=int(get_jwt_identity())
@@ -228,16 +247,40 @@ def list_dispatches(pid):
 def create_dispatch(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
+    # Validate dispatch qty does not exceed total GRN received
+    boq_item_id = data["boq_item_id"]
+    qty_dispatched_req = float(data["qty_dispatched"])
+    total_received = db.session.query(
+        db.func.coalesce(db.func.sum(GRN.qty_received), 0)
+    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
+    total_received = float(total_received)
+    total_dispatched = db.session.query(
+        db.func.coalesce(db.func.sum(DispatchNote.qty_dispatched), 0)
+    ).filter_by(project_id=pid, boq_item_id=boq_item_id).scalar()
+    total_dispatched = float(total_dispatched)
+    available = total_received - total_dispatched
+    if qty_dispatched_req > available:
+        boq = BOQItem.query.get(boq_item_id)
+        sr = boq.sr_no if boq else "Item"
+        return jsonify({
+            "error": f"{sr}: Cannot dispatch {qty_dispatched_req} — "
+                     f"only {available:.3f} available "
+                     f"(received {total_received:.3f}, already dispatched {total_dispatched:.3f})"
+        }), 400
+
     dn = DispatchNote(
         project_id=pid,
         dn_number=next_dn_number(pid),
         dispatch_date=date.fromisoformat(data["dispatch_date"]),
-        boq_item_id=data["boq_item_id"],
-        qty_dispatched=data["qty_dispatched"],
+        boq_item_id=boq_item_id,
+        qty_dispatched=qty_dispatched_req,
         site_destination=data.get("site_destination",""),
         vehicle_no=data.get("vehicle_no",""),
         driver_name=data.get("driver_name",""),
         lr_number=data.get("lr_number",""),
+        bc_challan_no=data.get("bc_challan_no",""),
+        bc_invoice_no=data.get("bc_invoice_no",""),
+        eway_bill_no=data.get("eway_bill_no",""),
         remarks=data.get("remarks",""),
         created_by=int(get_jwt_identity())
     )
@@ -252,7 +295,7 @@ def pending_invoice(pid):
     dns = DispatchNote.query.filter_by(project_id=pid, invoice_status="pending").all()
     return jsonify([d.to_dict() for d in dns])
 
-@dispatch_bp.route("/delete/<int:did>", methods=["DELETE"])
+@dispatch_bp.route("/<int:did>/delete", methods=["DELETE"])
 @jwt_required()
 def delete_dispatch(did):
     claims = get_jwt()
@@ -354,7 +397,13 @@ def compute_ra(pid):
         total_installed   = sum(Decimal(str(e.qty_installed)) for e in all_progress)
         total_commissioned = sum(Decimal(str(e.qty_commissioned)) for e in all_progress)
 
-        if item.item_type in ["supply", "erection"]:
+        if item.item_type == "supply":
+            # Part 1: supply billing driven by dispatched quantity
+            all_dispatch = DispatchNote.query.filter_by(
+                project_id=pid, boq_item_id=item.id
+            ).all()
+            qty_upto = sum(Decimal(str(d.qty_dispatched)) for d in all_dispatch)
+        elif item.item_type == "erection":
             qty_upto = total_installed
         else:
             qty_upto = total_commissioned
