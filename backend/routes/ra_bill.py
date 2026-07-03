@@ -5,7 +5,8 @@ The "current" entries are those added AFTER the last RA bill was saved.
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.models import (Project, BOQItem, User, RABill, RABillLine,
-                            SiteProgress, DispatchNote, ReconciliationItem, db)
+                            SiteProgress, DispatchNote, ReconciliationItem,
+                            POInvoice, POInvoiceItem, db)
 from services.notifications import notify_ra_generated
 from services.export import (generate_ra_excel, generate_ra_pdf,
                              generate_tax_invoice_pdf, generate_tax_invoice_excel,
@@ -324,6 +325,100 @@ def export_challan_pdf(dn_id):
     return send_file(path, as_attachment=True,
                      download_name=f"Challan_{dn.dn_number}.pdf",
                      mimetype="application/pdf")
+
+
+@ra_bp.route("/po-invoice/<int:pid>", methods=["GET"])
+@jwt_required()
+def list_po_invoices(pid):
+    """List all PO invoices for a project."""
+    invs = POInvoice.query.filter_by(project_id=pid)                          .order_by(POInvoice.created_at.desc()).all()
+    return jsonify([i.to_dict() for i in invs])
+
+
+@ra_bp.route("/po-invoice/<int:pid>", methods=["POST"])
+@jwt_required()
+def save_po_invoice(pid):
+    """Save a PO Invoice from selected dispatch notes."""
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+
+    data = request.get_json()
+    dn_ids = data.get("dn_ids", [])
+    if not dn_ids:
+        return jsonify({"error": "No items selected"}), 400
+
+    project = Project.query.get_or_404(pid)
+
+    inv = POInvoice(
+        project_id   = pid,
+        invoice_no   = data["invoice_no"],
+        invoice_date = date.fromisoformat(data["invoice_date"]),
+        subtotal     = data["subtotal"],
+        igst_amount  = data.get("igst_amount", 0),
+        cgst_amount  = data.get("cgst_amount", 0),
+        sgst_amount  = data.get("sgst_amount", 0),
+        gross_total  = data["gross_total"],
+        status       = "draft",
+        created_by   = user.id,
+    )
+    db.session.add(inv)
+    db.session.flush()
+
+    for dn_id in dn_ids:
+        dn = DispatchNote.query.get(dn_id)
+        if not dn: continue
+        boq = BOQItem.query.get(dn.boq_item_id)
+        rate = float(boq.rate) if boq else 0
+        qty  = float(dn.qty_dispatched)
+        item = POInvoiceItem(
+            po_invoice_id = inv.id,
+            dn_id         = dn_id,
+            boq_item_id   = dn.boq_item_id,
+            qty           = qty,
+            rate          = rate,
+            amount        = qty * rate,
+            hsn_code      = boq.hsn_code if boq else "",
+        )
+        db.session.add(item)
+        # Mark dispatch as invoiced
+        dn.invoice_status = "invoiced"
+
+    db.session.commit()
+    return jsonify(inv.to_dict()), 201
+
+
+@ra_bp.route("/po-invoice/<int:inv_id>/pdf", methods=["GET"])
+@jwt_required()
+def export_po_invoice_pdf(inv_id):
+    """Download PO Invoice as PDF."""
+    from flask import send_file
+    from services.export import generate_po_invoice_pdf
+    inv = POInvoice.query.get_or_404(inv_id)
+    project = Project.query.get(inv.project_id)
+    path = generate_po_invoice_pdf(inv, project)
+    if not path:
+        return jsonify({"error": "PDF generation failed"}), 500
+    return send_file(path, as_attachment=True,
+                     download_name=f"POInvoice_{inv.invoice_no}.pdf",
+                     mimetype="application/pdf")
+
+
+@ra_bp.route("/po-invoice/<int:inv_id>/delete", methods=["DELETE"])
+@jwt_required()
+def delete_po_invoice(inv_id):
+    """Admin only — delete a PO invoice and un-mark its dispatch notes."""
+    err = admin_required()
+    if err: return err
+    inv = POInvoice.query.get_or_404(inv_id)
+    # Un-mark dispatch notes as invoiced
+    for item in inv.items:
+        dn = DispatchNote.query.get(item.dn_id)
+        if dn: dn.invoice_status = "pending"
+    POInvoiceItem.query.filter_by(po_invoice_id=inv_id).delete()
+    db.session.delete(inv)
+    db.session.commit()
+    return jsonify({"message": "PO Invoice deleted"}), 200
 
 @ra_bp.route("/<int:rid>/status", methods=["PUT"])
 @jwt_required()

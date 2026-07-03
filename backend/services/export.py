@@ -1070,3 +1070,222 @@ def generate_challan_pdf(dn, project):
     doc.build(elements)
     tmp.close()
     return tmp.name
+
+
+def generate_po_invoice_pdf(inv, project):
+    """Generate PO Invoice PDF using ReportLab."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, Image as RLImage)
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    GREEN      = colors.HexColor("#0F6E56")
+    GREEN_FILL = colors.HexColor("#E1F5EE")
+    GRAY_FILL  = colors.HexColor("#F1EFE8")
+    BORDER     = colors.HexColor("#CCCCCC")
+
+    doc = SimpleDocTemplate(
+        tmp.name, pagesize=A4,
+        topMargin=10*mm, bottomMargin=15*mm,
+        leftMargin=15*mm, rightMargin=15*mm,
+    )
+
+    styles = getSampleStyleSheet()
+    def ps(name, **kw):
+        return ParagraphStyle(name, parent=styles["Normal"], **kw)
+
+    title_s  = ps("ti", fontSize=13, fontName="Helvetica-Bold",
+                   alignment=TA_CENTER, textColor=GREEN)
+    sub_s    = ps("su", fontSize=9, alignment=TA_CENTER,
+                   textColor=colors.HexColor("#555555"))
+    cell_s   = ps("ce", fontSize=8.5, leading=11)
+    cell_b   = ps("cb", fontSize=8.5, fontName="Helvetica-Bold", leading=11)
+    cell_r   = ps("cr", fontSize=8.5, alignment=TA_RIGHT)
+    cell_rb  = ps("crb", fontSize=8.5, fontName="Helvetica-Bold", alignment=TA_RIGHT)
+    cell_c   = ps("cc", fontSize=8.5, alignment=TA_CENTER)
+    footer_s = ps("fo", fontSize=8, textColor=colors.HexColor("#444444"))
+
+    elements = []
+
+    # Logo
+    try:
+        logo_img = RLImage(LOGO_FULL, width=50*mm, height=27*mm)
+        logo_img.hAlign = "CENTER"
+        elements.append(logo_img)
+        elements.append(Spacer(1, 4))
+    except Exception:
+        pass
+
+    elements.append(Paragraph("TAX INVOICE — PURCHASE ORDER", title_s))
+    elements.append(Spacer(1, 4))
+
+    # Meta
+    meta_data = [[
+        Paragraph(f"<b>Invoice No.:</b> {inv.invoice_no}", cell_s),
+        Paragraph(f"<b>Invoice Date:</b> {inv.invoice_date}", cell_s),
+        Paragraph(f"<b>PO No.:</b> {project.wo_number or ''}", cell_s),
+    ],[
+        Paragraph(f"<b>HSN/SAC:</b> {project.hsn_sac_code or '9954'}", cell_s),
+        Paragraph(f"<b>Place of Supply:</b> {project.place_of_supply or ''}", cell_s),
+        Paragraph("<b>Reverse Charge:</b> No", cell_s),
+    ]]
+    meta_tbl = Table(meta_data, colWidths=[60*mm, 60*mm, 60*mm])
+    meta_tbl.setStyle(TableStyle([
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1),3),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+    ]))
+    elements.append(meta_tbl)
+    elements.append(Spacer(1, 5))
+
+    # Party blocks
+    party_data = [[
+        Paragraph(
+            f"<b>SELLER:</b><br/><b>{project.seller_name}</b><br/>"
+            f"{project.seller_address or ''}<br/>"
+            f"GSTIN: {project.seller_gstin or ''}", cell_s),
+        Paragraph(
+            f"<b>BUYER:</b><br/><b>{project.client_name}</b><br/>"
+            f"{project.client_address or ''}<br/>"
+            f"GSTIN: {project.client_gstin or ''}", cell_s),
+        Paragraph(
+            f"<b>DELIVERY SITE:</b><br/>"
+            f"{project.site_name or project.client_name}<br/>"
+            f"{project.site_address or ''}", cell_s),
+    ]]
+    party_tbl = Table(party_data, colWidths=[60*mm, 60*mm, 60*mm])
+    party_tbl.setStyle(TableStyle([
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("VALIGN",      (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING",  (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+    ]))
+    elements.append(party_tbl)
+    elements.append(Spacer(1, 6))
+
+    # Line items table
+    elements.append(Paragraph("<b>ITEM DETAILS</b>", cell_b))
+    elements.append(Spacer(1, 3))
+
+    hdrs = ["Sr.", "DC No.", "Item No.", "Description", "HSN",
+            "Qty", "Unit", "Rate (Rs.)", "Amount (Rs.)"]
+    item_data = [[Paragraph(f"<b>{h}</b>", cell_c) for h in hdrs]]
+
+    subtotal = float(inv.subtotal or 0)
+    for idx, li in enumerate(inv.items, 1):
+        item_data.append([
+            Paragraph(str(idx), cell_c),
+            Paragraph(li.dn.dn_number if li.dn else "", cell_s),
+            Paragraph(li.boq_item.sr_no if li.boq_item else "", cell_c),
+            Paragraph((li.boq_item.description[:100] if li.boq_item else ""), cell_s),
+            Paragraph(li.hsn_code or "", cell_c),
+            Paragraph(f"{float(li.qty):,.3f}", cell_r),
+            Paragraph(li.boq_item.unit if li.boq_item else "", cell_c),
+            Paragraph(f"{float(li.rate):,.2f}", cell_r),
+            Paragraph(f"{float(li.amount):,.2f}", cell_r),
+        ])
+
+    # Total row
+    item_data.append([
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("<b>TOTAL</b>", cell_b),
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph("", cell_c),
+        Paragraph(f"<b>{subtotal:,.2f}</b>", cell_rb),
+    ])
+
+    col_w = [8*mm, 22*mm, 18*mm, 55*mm, 14*mm, 14*mm, 10*mm, 20*mm, 22*mm]
+    items_tbl = Table(item_data, colWidths=col_w, repeatRows=1)
+    items_tbl.setStyle(TableStyle([
+        ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
+        ("BACKGROUND",  (0,-1),(-1,-1), GREEN_FILL),
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("VALIGN",      (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1),3),
+        ("LEFTPADDING", (0,0), (-1,-1), 3),
+        ("RIGHTPADDING",(0,0), (-1,-1), 3),
+    ]))
+    elements.append(items_tbl)
+    elements.append(Spacer(1, 6))
+
+    # Summary
+    igst = float(inv.igst_amount or 0)
+    cgst = float(inv.cgst_amount or 0)
+    sgst = float(inv.sgst_amount or 0)
+    gross = float(inv.gross_total or 0)
+
+    sum_rows = []
+    sum_rows.append(["Subtotal (excl. GST)", f"Rs. {subtotal:,.2f}", False])
+    if igst > 0:
+        sum_rows.append([f"IGST @ {project.igst_rate}%", f"Rs. {igst:,.2f}", False])
+    if cgst > 0:
+        sum_rows.append([f"CGST @ {project.cgst_rate}%", f"Rs. {cgst:,.2f}", False])
+        sum_rows.append([f"SGST @ {project.sgst_rate}%", f"Rs. {sgst:,.2f}", False])
+    sum_rows.append(["TOTAL INVOICE VALUE (incl. GST)", f"Rs. {gross:,.2f}", True])
+
+    def ps_s(bold): return cell_rb if bold else cell_r
+    def ps_l(bold): return cell_b if bold else cell_s
+
+    sum_data = [[Paragraph(l, ps_l(b)), Paragraph(v, ps_s(b))]
+                for l, v, b in sum_rows]
+    sum_tbl = Table(sum_data, colWidths=[120*mm, 50*mm], hAlign="RIGHT")
+    sum_style = [
+        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",  (0,0), (-1,-1), 3),
+        ("BOTTOMPADDING",(0,0),(-1,-1),3),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+        ("RIGHTPADDING",(0,0), (-1,-1), 5),
+        ("BACKGROUND",  (0,len(sum_data)-1),(-1,len(sum_data)-1), GREEN_FILL),
+    ]
+    sum_tbl.setStyle(TableStyle(sum_style))
+    elements.append(sum_tbl)
+    elements.append(Spacer(1, 6))
+
+    # Amount in words
+    elements.append(Paragraph(
+        f"<b>Amount in Words:</b> {amount_in_words(gross)} (incl. GST)", cell_b))
+    elements.append(Spacer(1, 20))
+
+    # Signatory
+    try:
+        stamp_img = RLImage(STAMP_PATH, width=28*mm, height=28*mm)
+    except Exception:
+        stamp_img = Paragraph("", footer_s)
+
+    sign_data = [[
+        Paragraph(
+            "Certified that the particulars given above are true and correct.<br/><br/>"
+            "E. & O. E.", footer_s),
+        [Paragraph(f"For {project.seller_name}", footer_s),
+         stamp_img,
+         Paragraph("Authorised Signatory", footer_s)],
+    ]]
+    sign_tbl = Table(sign_data, colWidths=[95*mm, 85*mm])
+    sign_tbl.setStyle(TableStyle([
+        ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ("BOX",          (0,0), (-1,-1), 0.5, BORDER),
+        ("INNERGRID",    (0,0), (-1,-1), 0.3, BORDER),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+    ]))
+    elements.append(sign_tbl)
+
+    doc.build(elements)
+    tmp.close()
+    return tmp.name

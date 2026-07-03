@@ -30,9 +30,13 @@ export default function POInvoicePage() {
   const load = async () => {
     setLoading(true)
     try {
-      const r = await dispatch.list(activeProject.id)
-      setDnList(r.data)
-    } catch { toast.error('Could not load dispatch list') }
+      const [dnRes, invRes] = await Promise.all([
+        dispatch.list(activeProject.id),
+        ra.listPOInvoices(activeProject.id),
+      ])
+      setDnList(dnRes.data)
+      setPoInvoices(invRes.data)
+    } catch { toast.error('Could not load data') }
     finally { setLoading(false) }
   }
 
@@ -66,10 +70,21 @@ export default function POInvoicePage() {
       toast.success(`PO Invoice ${invoiceNo} saved`)
       setSelected({})
       setInvoiceNo('')
+      // Auto-download PDF
+      downloadPDF(res.data.id)
       load()
     } catch (e) {
       toast.error(e.response?.data?.error || 'Error saving invoice')
     } finally { setSaving(false) }
+  }
+
+  const deletePOInvoice = async (inv) => {
+    if (!confirm(`Delete Invoice ${inv.invoice_no}? Dispatch items will be marked pending again.`)) return
+    try {
+      await ra.deletePOInvoice(inv.id)
+      toast.success(`Invoice ${inv.invoice_no} deleted`)
+      load()
+    } catch(e) { toast.error(e.response?.data?.error || 'Delete failed') }
   }
 
   const downloadPDF = (invId) => {
@@ -250,38 +265,55 @@ export default function POInvoicePage() {
       )}
 
       {/* Already invoiced history */}
-      {invoicedDNs.length > 0 && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Invoiced history ({invoicedDNs.length} items)</span>
-          </div>
+      {/* Saved PO Invoices register */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">PO Invoice register ({poInvoices.length})</span>
+        </div>
+        {poInvoices.length === 0 ? (
+          <div className="empty" style={{ padding: 20 }}>No invoices generated yet.</div>
+        ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>DN No.</th><th>Date</th><th>Item No.</th><th>Description</th>
-                  <th style={{ textAlign: 'right' }}>Qty</th><th>Unit</th>
-                  <th style={{ textAlign: 'right' }}>Amount</th><th>Status</th>
+                  <th>Invoice No.</th><th>Date</th><th>Items</th>
+                  <th style={{ textAlign: 'right' }}>Subtotal</th>
+                  <th style={{ textAlign: 'right' }}>GST</th>
+                  <th style={{ textAlign: 'right' }}>Gross Total</th>
+                  <th>Status</th><th>Download</th>
+                  {isAdmin && <th></th>}
                 </tr>
               </thead>
               <tbody>
-                {invoicedDNs.map(d => (
-                  <tr key={d.id}>
-                    <td style={{ fontWeight: 500, fontSize: 12 }}>{d.dn_number}</td>
-                    <td style={{ fontSize: 12 }}>{d.dispatch_date}</td>
-                    <td style={{ fontWeight: 500 }}>{d.boq_item_sr}</td>
-                    <td style={{ fontSize: 12, maxWidth: 200 }}>{(d.boq_item_desc || '').substring(0, 60)}</td>
-                    <td style={{ textAlign: 'right' }}>{d.qty_dispatched}</td>
-                    <td style={{ fontSize: 11 }}>{d.unit}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>Rs. {Number(d.amount).toLocaleString('en-IN')}</td>
-                    <td><span className="badge badge-green">invoiced</span></td>
+                {poInvoices.map(inv => (
+                  <tr key={inv.id}>
+                    <td style={{ fontWeight: 500 }}>{inv.invoice_no}</td>
+                    <td style={{ fontSize: 12 }}>{inv.invoice_date}</td>
+                    <td style={{ fontSize: 12 }}>{inv.items?.length || 0} items</td>
+                    <td style={{ textAlign: 'right' }}>{fmt(inv.subtotal)}</td>
+                    <td style={{ textAlign: 'right' }}>{fmt(inv.igst_amount + inv.cgst_amount + inv.sgst_amount)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--teal)' }}>{fmt(inv.gross_total)}</td>
+                    <td><span className="badge badge-green">{inv.status}</span></td>
+                    <td>
+                      <button className="btn btn-sm btn-primary" onClick={() => downloadPDF(inv.id)}>
+                        PDF
+                      </button>
+                    </td>
+                    {isAdmin && (
+                      <td>
+                        <button className="btn btn-sm btn-danger" onClick={() => deletePOInvoice(inv)}>
+                          Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

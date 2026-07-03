@@ -87,8 +87,10 @@ export const ra = {
   reconciliation:    pid => api.get(`/ra/reconciliation/${pid}`),
   reconciliationXlsxUrl: pid => `${API_URL}/ra/reconciliation/${pid}/export/excel`,
   challanUrl:        dnId => `${API_URL}/ra/challan/${dnId}/pdf`,
-  savePOInvoice:     (pid, d) => api.post(`/ra/po-invoice/${pid}`, d),
-  poInvoicePdfUrl:   id => `${API_URL}/ra/po-invoice/${id}/pdf`,
+  savePOInvoice:       (pid, d) => api.post(`/ra/po-invoice/${pid}`, d),
+  listPOInvoices:      pid => api.get(`/ra/po-invoice/${pid}`),
+  poInvoicePdfUrl:     id => `${API_URL}/ra/po-invoice/${id}/pdf`,
+  deletePOInvoice:     id => api.delete(`/ra/po-invoice/${id}/delete`),
 }
 export const users = {
   list:       () => api.get('/users/'),
