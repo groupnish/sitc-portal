@@ -108,7 +108,8 @@ function InlineEditForm({ item, onSave, onCancel }) {
 }
 
 export function BOQPage() {
-  const { activeProject } = useAuth()
+  const { activeProject, user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [items, setItems]     = useState([])
   const [form, setForm]       = useState(BLANK)
   const [showForm, setShowForm] = useState(false)
@@ -205,14 +206,16 @@ export function BOQPage() {
             ref={fileInputRef} type="file" accept=".xlsx,.xls"
             style={{ display:'none' }} onChange={onFilePicked}
           />
-          <button className="btn btn-sm" disabled={importing}
-            onClick={() => fileInputRef.current?.click()}>
-            {importing ? 'Reading…' : '⬆ Import Excel'}
-          </button>
-          <button className="btn btn-primary btn-sm"
-            onClick={() => { setForm(BLANK); setShowForm(s => !s); setEditingId(null) }}>
-            {showForm ? 'Cancel' : '+ Add item'}
-          </button>
+          {isAdmin && <>
+            <button className="btn btn-sm" disabled={importing}
+              onClick={() => fileInputRef.current?.click()}>
+              {importing ? 'Reading…' : '⬆ Import Excel'}
+            </button>
+            <button className="btn btn-primary btn-sm"
+              onClick={() => { setForm(BLANK); setShowForm(s => !s); setEditingId(null) }}>
+              {showForm ? 'Cancel' : '+ Add item'}
+            </button>
+          </>}
         </div>
       </div>
 
@@ -407,12 +410,14 @@ export function BOQPage() {
                     <td>₹{Number(i.amount).toLocaleString('en-IN')}</td>
                     <td>
                       <div style={{ display:'flex', gap:4 }}>
-                        <button className="btn btn-sm"
-                          onClick={() => setEditingId(editingId === i.id ? null : i.id)}>
-                          {editingId === i.id ? 'Cancel' : 'Edit'}
-                        </button>
-                        <button className="btn btn-sm btn-danger"
-                          onClick={() => del(i.id)}>Del</button>
+                        {isAdmin && <>
+                          <button className="btn btn-sm"
+                            onClick={() => setEditingId(editingId === i.id ? null : i.id)}>
+                            {editingId === i.id ? 'Cancel' : 'Edit'}
+                          </button>
+                          <button className="btn btn-sm btn-danger"
+                            onClick={() => del(i.id)}>Del</button>
+                        </>}
                       </div>
                     </td>
                   </tr>

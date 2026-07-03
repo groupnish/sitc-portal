@@ -14,6 +14,7 @@ import ProjectsPage from './pages/admin/ProjectsPage'
 import BOQPage from './pages/admin/BOQPage'
 import ProfilePage from './pages/ProfilePage'
 import ReconciliationPage from './pages/accounts/ReconciliationPage'
+import POInvoicePage from './pages/accounts/POInvoicePage'
 
 function PrivateRoute({ children, roles }) {
   const { user, loading } = useAuth()
@@ -37,11 +38,12 @@ export default function App() {
         <Route path="invoice"        element={<PrivateRoute roles={['accounts']}><InvoiceListPage /></PrivateRoute>} />
         <Route path="ra"             element={<PrivateRoute roles={['accounts']}><RABillPage /></PrivateRoute>} />
         <Route path="reconciliation" element={<PrivateRoute roles={['accounts']}><ReconciliationPage /></PrivateRoute>} />
+        <Route path="po-invoice"     element={<PrivateRoute roles={['admin','accounts']}><POInvoicePage /></PrivateRoute>} />
         <Route path="installation"   element={<PrivateRoute roles={['site','accounts']}><InstallationPage /></PrivateRoute>} />
         <Route path="commissioning"  element={<PrivateRoute roles={['site','accounts']}><CommissioningPage /></PrivateRoute>} />
         <Route path="users"          element={<PrivateRoute roles={['admin']}><UsersPage /></PrivateRoute>} />
-        <Route path="projects"       element={<PrivateRoute roles={['admin']}><ProjectsPage /></PrivateRoute>} />
-        <Route path="boq"            element={<PrivateRoute roles={['admin']}><BOQPage /></PrivateRoute>} />
+        <Route path="projects"       element={<PrivateRoute roles={['admin','accounts']}><ProjectsPage /></PrivateRoute>} />
+        <Route path="boq"            element={<PrivateRoute roles={['admin','accounts']}><BOQPage /></PrivateRoute>} />
         <Route path="profile"        element={<ProfilePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -14,7 +14,8 @@ const BLANK = {
 }
 
 export default function ProjectsPage() {
-  const { loadProjects } = useAuth()
+  const { loadProjects, user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [list, setList]       = useState([])
   const [form, setForm]       = useState(BLANK)
   const [editing, setEditing] = useState(null)
@@ -52,9 +53,9 @@ export default function ProjectsPage() {
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h2 style={{fontSize:14,fontWeight:500}}>Projects</h2>
-        <button className="btn btn-primary btn-sm" onClick={()=>{setForm(BLANK);setEditing(null);setShowForm(s=>!s);setTab('basic')}}>
+        {isAdmin && <button className="btn btn-primary btn-sm" onClick={()=>{setForm(BLANK);setEditing(null);setShowForm(s=>!s);setTab('basic')}}>
           {showForm?'Cancel':'+ New project'}
-        </button>
+        </button>}
       </div>
 
       {showForm && (
@@ -164,7 +165,7 @@ export default function ProjectsPage() {
                   <td>₹{p.wo_value?(p.wo_value/100000).toFixed(2)+'L':'—'}</td>
                   <td>#{p.current_ra_no}</td>
                   <td><span className={`badge ${p.is_active?'badge-green':'badge-gray'}`}>{p.is_active?'Active':'Inactive'}</span></td>
-                  <td><button className="btn btn-sm" onClick={()=>editProject(p)}>Edit</button></td>
+                  <td>{isAdmin && <button className="btn btn-sm" onClick={()=>editProject(p)}>Edit</button>}</td>
                 </tr>
               ))}
             </tbody>

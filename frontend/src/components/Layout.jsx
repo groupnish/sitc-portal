@@ -85,14 +85,14 @@ export default function Layout() {
         </>}
 
         {isAccounts && !isAdmin && <>
-          <div className="nav-section">SCM (View)</div>
+          <div className="nav-section">SCM</div>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/grn" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.truck}/> Material inward
           </NavLink>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/dispatch" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.package}/> Dispatch / outward
           </NavLink>
-          <div className="nav-section">Site (View)</div>
+          <div className="nav-section">Projects</div>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/installation" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.factory}/> Installation
           </NavLink>
@@ -106,8 +106,18 @@ export default function Layout() {
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/ra" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.receipt}/> RA bill
           </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/po-invoice" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.doc}/> PO Invoice
+          </NavLink>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/reconciliation" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.list}/> Reconciliation
+          </NavLink>
+          <div className="nav-section">Admin (View)</div>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/projects" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.folder}/> Projects
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/boq" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.list}/> BOQ manager
           </NavLink>
         </>}
 
