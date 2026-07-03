@@ -84,6 +84,9 @@ class Project(db.Model):
     # Advance received
     advance_received_incl_gst = db.Column(db.Numeric(14, 2), default=0)
 
+    # Project type determines billing workflow
+    project_type   = db.Column(db.String(20), default="work_contract")
+
     # Invoice series
     invoice_prefix = db.Column(db.String(30), default="INV")
     current_ra_no  = db.Column(db.Integer, default=1)
@@ -118,6 +121,7 @@ class Project(db.Model):
             "pt_ld_pct": float(self.pt_ld_pct),
             "pt_notes": self.pt_notes,
             "advance_received_incl_gst": float(self.advance_received_incl_gst),
+            "project_type": self.project_type or "work_contract",
             "invoice_prefix": self.invoice_prefix,
             "current_ra_no": self.current_ra_no,
         }
@@ -389,77 +393,6 @@ class RABillLine(db.Model):
 
 
 
-
-
-
-class POInvoice(db.Model):
-    """Item-wise Tax Invoice for Purchase Order type projects.
-    Items are selected from dispatched (DispatchNote) records."""
-    __tablename__ = "po_invoices"
-    id            = db.Column(db.Integer, primary_key=True)
-    project_id    = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
-    invoice_no    = db.Column(db.String(100), nullable=False)
-    invoice_date  = db.Column(db.Date, nullable=False)
-    subtotal      = db.Column(db.Numeric(14, 2), default=0)
-    igst_amount   = db.Column(db.Numeric(14, 2), default=0)
-    cgst_amount   = db.Column(db.Numeric(14, 2), default=0)
-    sgst_amount   = db.Column(db.Numeric(14, 2), default=0)
-    gross_total   = db.Column(db.Numeric(14, 2), default=0)
-    status        = db.Column(db.String(20), default="draft")
-    notes         = db.Column(db.Text)
-    created_by    = db.Column(db.Integer, db.ForeignKey("users.id"))
-    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
-
-    project       = db.relationship("Project", backref="po_invoices")
-    items         = db.relationship("POInvoiceItem", backref="invoice",
-                                    cascade="all, delete-orphan")
-
-    def to_dict(self):
-        return {
-            "id": self.id, "project_id": self.project_id,
-            "invoice_no": self.invoice_no,
-            "invoice_date": self.invoice_date.isoformat() if self.invoice_date else None,
-            "subtotal": float(self.subtotal or 0),
-            "igst_amount": float(self.igst_amount or 0),
-            "cgst_amount": float(self.cgst_amount or 0),
-            "sgst_amount": float(self.sgst_amount or 0),
-            "gross_total": float(self.gross_total or 0),
-            "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "items": [i.to_dict() for i in self.items],
-        }
-
-
-class POInvoiceItem(db.Model):
-    """One line item in a PO Invoice — linked to a DispatchNote."""
-    __tablename__ = "po_invoice_items"
-    id            = db.Column(db.Integer, primary_key=True)
-    po_invoice_id = db.Column(db.Integer, db.ForeignKey("po_invoices.id"), nullable=False)
-    dn_id         = db.Column(db.Integer, db.ForeignKey("dispatch_notes.id"), nullable=False)
-    boq_item_id   = db.Column(db.Integer, db.ForeignKey("boq_items.id"), nullable=False)
-    qty           = db.Column(db.Numeric(12, 3), default=0)
-    rate          = db.Column(db.Numeric(14, 2), default=0)
-    amount        = db.Column(db.Numeric(14, 2), default=0)
-    hsn_code      = db.Column(db.String(20))
-
-    dn            = db.relationship("DispatchNote", backref="po_invoice_items")
-    boq_item      = db.relationship("BOQItem", backref="po_invoice_items")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "po_invoice_id": self.po_invoice_id,
-            "dn_id": self.dn_id,
-            "dn_number": self.dn.dn_number if self.dn else "",
-            "boq_item_id": self.boq_item_id,
-            "sr_no": self.boq_item.sr_no if self.boq_item else "",
-            "description": self.boq_item.description if self.boq_item else "",
-            "unit": self.boq_item.unit if self.boq_item else "",
-            "hsn_code": self.hsn_code or (self.boq_item.hsn_code if self.boq_item else "") or "",
-            "qty": float(self.qty or 0),
-            "rate": float(self.rate or 0),
-            "amount": float(self.amount or 0),
-        }
 
 class ReconciliationItem(db.Model):
     """Frozen audit of old WO (Gharpure) billings vs new PO (BEIL Amd-3) disposition."""
