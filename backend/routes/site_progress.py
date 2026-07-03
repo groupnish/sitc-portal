@@ -284,6 +284,19 @@ def mark_invoiced(did):
     db.session.commit()
     return jsonify(dn.to_dict())
 
+
+@dispatch_bp.route("/<int:did>/delete", methods=["DELETE"])
+@jwt_required()
+def delete_dispatch(did):
+    """Admin only — permanently delete a dispatch note."""
+    err = admin_required()
+    if err: return err
+    dn = DispatchNote.query.get_or_404(did)
+    dn_number = dn.dn_number
+    db.session.delete(dn)
+    db.session.commit()
+    return jsonify({"message": f"Dispatch note {dn_number} deleted"}), 200
+
 # ── Site Progress ─────────────────────────────────────────────────────────────
 
 site_bp = Blueprint("site", __name__)

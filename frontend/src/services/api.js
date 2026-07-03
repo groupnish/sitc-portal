@@ -66,6 +66,7 @@ export const dispatch = {
   create:      (pid,d) => api.post(`/dispatch/${pid}`, d),
   pending:     pid => api.get(`/dispatch/pending-invoice/${pid}`),
   markInvoiced:id => api.put(`/dispatch/${id}/mark-invoiced`),
+  del:         id => api.delete(`/dispatch/${id}/delete`),
 }
 export const site = {
   list:       pid => api.get(`/site/${pid}`),

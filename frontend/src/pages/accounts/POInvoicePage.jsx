@@ -102,6 +102,25 @@ export default function POInvoicePage() {
 
   return (
     <div>
+      {/* Company header */}
+      <div style={{
+        textAlign: 'center', marginBottom: 20, paddingBottom: 16,
+        borderBottom: '2px solid var(--teal)',
+      }}>
+        <img
+          src="/sitc-portal/assets/logo_full.png"
+          alt="Group Nish"
+          style={{ height: 60, marginBottom: 6 }}
+          onError={e => { e.target.style.display='none' }}
+        />
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--teal)' }}>
+          TAX INVOICE — PURCHASE ORDER
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-s)', marginTop: 2 }}>
+          {activeProject?.name} &nbsp;·&nbsp; {activeProject?.client_name}
+        </div>
+      </div>
+
       {/* Summary stats */}
       <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)', marginBottom: 16 }}>
         <div className="stat-card">

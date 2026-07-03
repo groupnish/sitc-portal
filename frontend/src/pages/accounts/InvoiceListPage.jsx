@@ -4,7 +4,8 @@ import { dispatch } from '../../services/api'
 import toast from 'react-hot-toast'
 
 export default function InvoiceListPage() {
-  const { activeProject } = useAuth()
+  const { activeProject, user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [pending, setPending]   = useState([])
   const [invoiced, setInvoiced] = useState([])
   const [all, setAll]           = useState([])
@@ -30,6 +31,15 @@ export default function InvoiceListPage() {
       toast.success('Marked as invoiced')
       load()
     } catch { toast.error('Error') }
+  }
+
+  const deleteDispatch = async (d) => {
+    if (!confirm(`Delete ${d.dn_number}? This cannot be undone.`)) return
+    try {
+      await dispatch.del(d.id)
+      toast.success(`${d.dn_number} deleted`)
+      load()
+    } catch(e) { toast.error(e.response?.data?.error || 'Delete failed') }
   }
 
   const totalPending  = pending.reduce((a,d) => a + Number(d.amount), 0)
@@ -104,6 +114,7 @@ export default function InvoiceListPage() {
               <thead><tr>
                 <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th><th>Unit</th>
                 <th>Rate (₹)</th><th>Amount (₹)</th><th>Site</th><th>Action</th>
+                {isAdmin && <th></th>}
               </tr></thead>
               <tbody>
                 {pending.length===0 && <tr><td colSpan={9} className="empty">No pending invoice items. All dispatches have been invoiced.</td></tr>}
@@ -122,6 +133,11 @@ export default function InvoiceListPage() {
                         Mark invoiced
                       </button>
                     </td>
+                    {isAdmin && (
+                      <td>
+                        <button className="btn btn-sm btn-danger" onClick={()=>deleteDispatch(d)}>Delete</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {pending.length > 0 && (
@@ -145,6 +161,7 @@ export default function InvoiceListPage() {
               <thead><tr>
                 <th>DN no.</th><th>Date</th><th>BOQ item</th><th>Qty</th><th>Unit</th>
                 <th>Rate (₹)</th><th>Amount (₹)</th><th>Site</th><th>Status</th>
+                {isAdmin && <th></th>}
               </tr></thead>
               <tbody>
                 {invoiced.length===0 && <tr><td colSpan={9} className="empty">No invoiced dispatches yet.</td></tr>}
@@ -162,6 +179,11 @@ export default function InvoiceListPage() {
                     <td style={{fontWeight:500}}>₹{Number(d.amount).toLocaleString('en-IN')}</td>
                     <td style={{fontSize:11}}>{d.site_destination?.split('—')[0]}</td>
                     <td><span className="badge badge-green">invoiced</span></td>
+                    {isAdmin && (
+                      <td>
+                        <button className="btn btn-sm btn-danger" onClick={()=>deleteDispatch(d)}>Delete</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {invoiced.length > 0 && (
