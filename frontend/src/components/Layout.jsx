@@ -132,6 +132,19 @@ export default function Layout() {
         </>}
 
         {isAdmin && <>
+          <div className="nav-section">Accounts</div>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/invoice" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.invoice}/> Invoice list
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/ra" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.receipt}/> RA bill
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/po-invoice" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.doc}/> PO Invoice
+          </NavLink>
+          <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/reconciliation" onClick={()=>setSideOpen(false)}>
+            <Icon d={ICONS.list}/> Reconciliation
+          </NavLink>
           <div className="nav-section">Admin</div>
           <NavLink className={({isActive})=>`nav-item${isActive?' active':''}`} to="/projects" onClick={()=>setSideOpen(false)}>
             <Icon d={ICONS.folder}/> Projects
