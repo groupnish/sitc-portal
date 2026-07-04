@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from models.models import (Project, BOQItem, User, GRN, DispatchNote,
                             SiteProgress, RABill, RABillLine, Notification, db)
 from services.notifications import (notify_grn_created, notify_dispatch_created,
-                                     notify_progress_updated, notify_ra_generated)
+                                     notify_progress_updated, notify_ra_generated,
+                                     batch_grn_created, batch_dispatch_created)
 from services.export import generate_ra_excel, generate_ra_pdf
 from datetime import date, datetime
 from decimal import Decimal
@@ -219,7 +220,7 @@ def create_grn(pid):
         created_by=int(get_jwt_identity())
     )
     db.session.add(grn); db.session.commit()
-    try: notify_grn_created(grn, project)
+    try: batch_grn_created(grn, project)
     except Exception as e: print(f"Notify error: {e}")
     return jsonify(grn.to_dict()), 201
 
@@ -285,7 +286,7 @@ def create_dispatch(pid):
         created_by=int(get_jwt_identity())
     )
     db.session.add(dn); db.session.commit()
-    try: notify_dispatch_created(dn, project)
+    try: batch_dispatch_created(dn, project)
     except Exception as e: print(f"Notify error: {e}")
     return jsonify(dn.to_dict()), 201
 

@@ -93,6 +93,181 @@ def save_notification(project_id, user_ids, event_type, message, ref_id=None, re
     db.session.commit()
 
 
+
+# -- Batch email buffer -------------------------------------------------------
+_batch_lock      = threading.Lock()
+_grn_buffer      = {}
+_dispatch_buffer = {}
+BATCH_DELAY      = 300  # seconds to wait before firing compiled email
+
+
+def _fire_grn_batch(pid, app):
+    with _batch_lock:
+        batch = _grn_buffer.pop(pid, None)
+    if not batch or not batch["items"]:
+        return
+    with app.app_context():
+        try:
+            _send_compiled_grn_email(batch["items"], batch["project"])
+        except Exception as e:
+            print(f"[BATCH GRN] Email error: {e}")
+
+
+def _fire_dispatch_batch(pid, app):
+    with _batch_lock:
+        batch = _dispatch_buffer.pop(pid, None)
+    if not batch or not batch["items"]:
+        return
+    with app.app_context():
+        try:
+            _send_compiled_dispatch_email(batch["items"], batch["project"])
+        except Exception as e:
+            print(f"[BATCH DISPATCH] Email error: {e}")
+
+
+def batch_grn_created(grn, project):
+    """Buffer a GRN; fire one compiled email after 45s of inactivity."""
+    app = current_app._get_current_object()
+    pid = project.id
+    boq = grn.boq_item
+    item_data = {
+        "grn_number":   grn.grn_number,
+        "grn_date":     str(grn.grn_date),
+        "sr_no":        boq.sr_no if boq else "",
+        "description":  boq.description[:100] if boq else "",
+        "unit":         boq.unit if boq else "",
+        "qty_received": float(grn.qty_received),
+        "vendor_name":  grn.vendor_name or "",
+        "challan_no":   grn.challan_no or "",
+    }
+    with _batch_lock:
+        if pid not in _grn_buffer:
+            _grn_buffer[pid] = {"items": [], "project": project, "timer": None}
+        elif _grn_buffer[pid]["timer"]:
+            _grn_buffer[pid]["timer"].cancel()
+        _grn_buffer[pid]["items"].append(item_data)
+        t = threading.Timer(BATCH_DELAY, _fire_grn_batch, args=[pid, app])
+        t.daemon = True
+        t.start()
+        _grn_buffer[pid]["timer"] = t
+    n = len(_grn_buffer[pid]["items"])
+    print(f"[BATCH GRN] {grn.grn_number} buffered ({n} items), timer reset to {BATCH_DELAY}s")
+    users = User.query.filter(User.is_active == True).all()
+    save_notification(project.id, [u.id for u in users if u.notify_grn],
+                      "grn_created", f"GRN {grn.grn_number} created for {item_data['sr_no']}",
+                      ref_id=grn.id, ref_type="grn")
+
+
+def batch_dispatch_created(dn, project):
+    """Buffer a Dispatch; fire one compiled email after 45s of inactivity."""
+    app = current_app._get_current_object()
+    pid = project.id
+    boq  = dn.boq_item
+    rate = float(boq.rate) if boq else 0
+    item_data = {
+        "dn_number":       dn.dn_number,
+        "dispatch_date":   str(dn.dispatch_date),
+        "sr_no":           boq.sr_no if boq else "",
+        "description":     boq.description[:100] if boq else "",
+        "unit":            boq.unit if boq else "",
+        "qty_dispatched":  float(dn.qty_dispatched),
+        "site_destination":dn.site_destination or "",
+        "vehicle_no":      dn.vehicle_no or "",
+        "amount":          rate * float(dn.qty_dispatched),
+    }
+    with _batch_lock:
+        if pid not in _dispatch_buffer:
+            _dispatch_buffer[pid] = {"items": [], "project": project, "timer": None}
+        elif _dispatch_buffer[pid]["timer"]:
+            _dispatch_buffer[pid]["timer"].cancel()
+        _dispatch_buffer[pid]["items"].append(item_data)
+        t = threading.Timer(BATCH_DELAY, _fire_dispatch_batch, args=[pid, app])
+        t.daemon = True
+        t.start()
+        _dispatch_buffer[pid]["timer"] = t
+    n = len(_dispatch_buffer[pid]["items"])
+    print(f"[BATCH DISPATCH] {dn.dn_number} buffered ({n} items), timer reset to {BATCH_DELAY}s")
+    users = User.query.filter(User.is_active == True).all()
+    save_notification(project.id, [u.id for u in users if u.notify_dispatch],
+                      "dispatch_created", f"Dispatch {dn.dn_number} created for {item_data['sr_no']}",
+                      ref_id=dn.id, ref_type="dispatch")
+
+
+def _send_compiled_grn_email(items, project):
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_grn and u.email]
+    if not to_emails:
+        return
+    count = len(items)
+    rows = "".join([
+        "<tr>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['grn_number']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['sr_no']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['description'][:80]}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right'>{i['qty_received']} {i['unit']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['vendor_name']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['challan_no']}</td>"
+        "</tr>"
+        for i in items
+    ])
+    subject = f"[{project.code}] Material Inward - {count} GRN(s) created"
+    html = (
+        f"<h3 style='color:#0F6E56'>Material Inward Summary - {project.name}</h3>"
+        f"<p><b>{count} GRN(s)</b> created on {items[0]['grn_date']}</p>"
+        "<table style='border-collapse:collapse;width:100%;font-size:13px'>"
+        "<thead><tr style='background:#E1F5EE'>"
+        "<th style='padding:8px 10px;text-align:left'>GRN No.</th>"
+        "<th style='padding:8px 10px;text-align:left'>Item No.</th>"
+        "<th style='padding:8px 10px;text-align:left'>Description</th>"
+        "<th style='padding:8px 10px;text-align:right'>Qty Received</th>"
+        "<th style='padding:8px 10px;text-align:left'>Vendor</th>"
+        "<th style='padding:8px 10px;text-align:left'>Challan</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+        "<hr><p style='color:#888;font-size:12px'>Project Tracker - Group Nish</p>"
+    )
+    send_email(to_emails, subject, html)
+
+
+def _send_compiled_dispatch_email(items, project):
+    users = User.query.filter(User.is_active == True).all()
+    to_emails = [u.email for u in users if u.notify_dispatch and u.email]
+    if not to_emails:
+        return
+    count = len(items)
+    total_amt = sum(i["amount"] for i in items)
+    rows = "".join([
+        "<tr>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['dn_number']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['sr_no']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['description'][:80]}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right'>{i['qty_dispatched']} {i['unit']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['site_destination']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{i['vehicle_no']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee;text-align:right'>Rs.{i['amount']:,.2f}</td>"
+        "</tr>"
+        for i in items
+    ])
+    subject = f"[{project.code}] Material Outward - {count} Dispatch(es) created"
+    html = (
+        f"<h3 style='color:#0F6E56'>Material Outward Summary - {project.name}</h3>"
+        f"<p><b>{count} Dispatch Note(s)</b> created on {items[0]['dispatch_date']}</p>"
+        "<table style='border-collapse:collapse;width:100%;font-size:13px'>"
+        "<thead><tr style='background:#E1F5EE'>"
+        "<th style='padding:8px 10px;text-align:left'>DN No.</th>"
+        "<th style='padding:8px 10px;text-align:left'>Item No.</th>"
+        "<th style='padding:8px 10px;text-align:left'>Description</th>"
+        "<th style='padding:8px 10px;text-align:right'>Qty</th>"
+        "<th style='padding:8px 10px;text-align:left'>Site</th>"
+        "<th style='padding:8px 10px;text-align:left'>Vehicle</th>"
+        "<th style='padding:8px 10px;text-align:right'>Amount</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+        f"<p><b>Total dispatched value (excl. GST): Rs.{total_amt:,.2f}</b></p>"
+        "<hr><p style='color:#888;font-size:12px'>Project Tracker - Group Nish</p>"
+    )
+    send_email(to_emails, subject, html)
+
+
+
 # ── Event-specific helpers ────────────────────────────────────────────────────
 
 def notify_grn_created(grn, project):
