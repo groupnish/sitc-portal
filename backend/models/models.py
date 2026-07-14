@@ -213,6 +213,9 @@ class DispatchNote(db.Model):
     vehicle_no    = db.Column(db.String(30))
     driver_name   = db.Column(db.String(100))
     lr_number     = db.Column(db.String(50))
+    bc_challan_no = db.Column(db.String(50))
+    bc_invoice_no = db.Column(db.String(50))
+    eway_bill_no  = db.Column(db.String(50))
     remarks       = db.Column(db.Text)
     created_by    = db.Column(db.Integer, db.ForeignKey("users.id"))
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
@@ -248,7 +251,11 @@ class DispatchNote(db.Model):
             "amount": amount,
             "site_destination": self.site_destination,
             "vehicle_no": self.vehicle_no, "driver_name": self.driver_name,
-            "lr_number": self.lr_number, "remarks": self.remarks,
+            "lr_number": self.lr_number,
+            "bc_challan_no": self.bc_challan_no or "",
+            "bc_invoice_no": self.bc_invoice_no or "",
+            "eway_bill_no": self.eway_bill_no or "",
+            "remarks": self.remarks,
             "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(),
             "invoice_status": self.invoice_status,
