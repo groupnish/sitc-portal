@@ -56,12 +56,28 @@ def compute_ra(pid):
         rate = Decimal(str(item.rate))
         po_qty = Decimal(str(item.po_qty))
 
-        # All progress entries for this item
-        all_entries = SiteProgress.query.filter_by(
-            project_id=pid, boq_item_id=item.id
-        ).all()
+        if item.item_type == "supply":
+            # Part 1: supply billing is driven by DISPATCHED quantity, not site progress
+            all_dispatch = DispatchNote.query.filter_by(
+                project_id=pid, boq_item_id=item.id
+            ).all()
+            if prev_ra_date:
+                prev_dispatch = [d for d in all_dispatch if d.created_at <= prev_ra_date]
+                curr_dispatch = [d for d in all_dispatch if d.created_at > prev_ra_date]
+            else:
+                prev_dispatch = []
+                curr_dispatch = all_dispatch
 
-        if item.item_type in ["supply", "erection"]:
+            qty_prev_total = sum(Decimal(str(d.qty_dispatched)) for d in prev_dispatch)
+            qty_curr       = sum(Decimal(str(d.qty_dispatched)) for d in curr_dispatch)
+            qty_upto       = qty_prev_total + qty_curr
+            qty_balance    = max(po_qty - qty_upto, Decimal("0"))
+
+        elif item.item_type == "erection":
+            # All progress entries for this item
+            all_entries = SiteProgress.query.filter_by(
+                project_id=pid, boq_item_id=item.id
+            ).all()
             # Previous: entries up to last RA bill date
             if prev_ra_date:
                 prev_entries = [e for e in all_entries if e.updated_at <= prev_ra_date]
@@ -76,6 +92,9 @@ def compute_ra(pid):
             qty_balance    = max(po_qty - qty_upto, Decimal("0"))
 
         else:  # commissioning
+            all_entries = SiteProgress.query.filter_by(
+                project_id=pid, boq_item_id=item.id
+            ).all()
             if prev_ra_date:
                 prev_entries = [e for e in all_entries if e.updated_at <= prev_ra_date]
                 curr_entries = [e for e in all_entries if e.updated_at > prev_ra_date]
