@@ -140,6 +140,7 @@ class BOQItem(db.Model):
     site_zone   = db.Column(db.String(50))
     item_type   = db.Column(db.String(20), default="supply")
     # item_type: supply | erection | commissioning
+    hsn_code    = db.Column(db.String(20))
     milestone_type = db.Column(db.String(20), default="standard")
     sort_order  = db.Column(db.Integer, default=0)
     is_active   = db.Column(db.Boolean, default=True)
@@ -151,6 +152,7 @@ class BOQItem(db.Model):
             "po_qty": float(self.po_qty), "unit": self.unit,
             "rate": float(self.rate), "amount": float(self.amount),
             "site_zone": self.site_zone, "item_type": self.item_type,
+            "hsn_code": self.hsn_code or "",
             "milestone_type": self.milestone_type, "sort_order": self.sort_order,
         }
 
@@ -165,6 +167,7 @@ class GRN(db.Model):
     qty_received = db.Column(db.Numeric(12, 3), nullable=False)
     vendor_name  = db.Column(db.String(200))
     challan_no   = db.Column(db.String(100))
+    hsn_code     = db.Column(db.String(20))
     vehicle_no   = db.Column(db.String(30))
     remarks      = db.Column(db.Text)
     created_by   = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -195,6 +198,7 @@ class GRN(db.Model):
             "qty_received": float(self.qty_received),
             "unit": boq_unit,
             "vendor_name": self.vendor_name, "challan_no": self.challan_no,
+            "hsn_code": self.hsn_code or "",
             "vehicle_no": self.vehicle_no, "remarks": self.remarks,
             "created_by_name": creator_name,
             "created_at": self.created_at.isoformat(), "status": self.status,
