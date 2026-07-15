@@ -6,14 +6,6 @@ import { openWhatsApp, dispatchWhatsAppMsg } from '../../utils/whatsapp'
 import toast from 'react-hot-toast'
 
 const today = () => new Date().toISOString().split('T')[0]
-const SITES = [
-  'MPS Site — Main Pumping Station',
-  'STP Site — Sewage Treatment Plant',
-  'SPS Site — Sub Pumping Station',
-  'Head Office',
-  'Vendor Premises'
-]
-
 const EMPTY_FORM = {
   dispatch_date: today(), boq_item_id: '', qty_dispatched: '',
   site_destination: '', vehicle_no: '', driver_name: '', lr_number: '',
@@ -24,6 +16,8 @@ export default function DispatchPage() {
   const { activeProject, isAdmin, user } = useAuth()
   const isAccounts = user?.role === 'accounts'
   const [boqItems, setBoqItems]     = useState([])
+  // Site list is project-specific — derived from zones actually used in this project's BOQ
+  const SITES = [...new Set(boqItems.map(i => i.site_zone).filter(Boolean))]
   const [dnList, setDnList]         = useState([])
   const [contacts, setContacts]     = useState([])
   const [loading, setLoading]       = useState(false)
@@ -122,11 +116,18 @@ export default function DispatchPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Dispatch to site *</label>
-                <select className="form-select" required value={form.site_destination}
-                  onChange={e => set('site_destination', e.target.value)}>
-                  <option value="">— Select site —</option>
-                  {SITES.map(s => <option key={s}>{s}</option>)}
-                </select>
+                {SITES.length > 0 ? (
+                  <select className="form-select" required value={form.site_destination}
+                    onChange={e => set('site_destination', e.target.value)}>
+                    <option value="">— Select site —</option>
+                    {SITES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <input className="form-input" required type="text"
+                    placeholder="Enter destination site"
+                    value={form.site_destination}
+                    onChange={e => set('site_destination', e.target.value)} />
+                )}
               </div>
             </div>
             <div className="form-group" style={{ marginBottom: 12 }}>
