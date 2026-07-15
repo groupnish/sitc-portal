@@ -175,9 +175,11 @@ def batch_dispatch_created(dn, project):
         "vehicle_no":      dn.vehicle_no or "",
         "amount":          rate * float(dn.qty_dispatched),
     }
+    # Store project as plain dict to avoid SQLAlchemy session detachment
+    project_data = {"id": project.id, "code": project.code, "name": project.name}
     with _batch_lock:
         if pid not in _dispatch_buffer:
-            _dispatch_buffer[pid] = {"items": [], "project": project, "timer": None}
+            _dispatch_buffer[pid] = {"items": [], "project": project_data, "timer": None}
         elif _dispatch_buffer[pid]["timer"]:
             _dispatch_buffer[pid]["timer"].cancel()
         _dispatch_buffer[pid]["items"].append(item_data)
@@ -194,6 +196,7 @@ def batch_dispatch_created(dn, project):
 
 
 def _send_compiled_grn_email(items, project):
+    # project is a plain dict here (not SQLAlchemy object)
     users = User.query.filter(User.is_active == True).all()
     to_emails = [u.email for u in users if u.notify_grn and u.email]
     if not to_emails:
@@ -210,9 +213,9 @@ def _send_compiled_grn_email(items, project):
         "</tr>"
         for i in items
     ])
-    subject = f"[{project.code}] Material Inward - {count} GRN(s) created"
+    subject = f"[{project['code']}] Material Inward - {count} GRN(s) created"
     html = (
-        f"<h3 style='color:#0F6E56'>Material Inward Summary - {project.name}</h3>"
+        f"<h3 style='color:#0F6E56'>Material Inward Summary - {project['name']}</h3>"
         f"<p><b>{count} GRN(s)</b> created on {items[0]['grn_date']}</p>"
         "<table style='border-collapse:collapse;width:100%;font-size:13px'>"
         "<thead><tr style='background:#E1F5EE'>"
@@ -247,9 +250,9 @@ def _send_compiled_dispatch_email(items, project):
         "</tr>"
         for i in items
     ])
-    subject = f"[{project.code}] Material Outward - {count} Dispatch(es) created"
+    subject = f"[{project['code']}] Material Outward - {count} Dispatch(es) created"
     html = (
-        f"<h3 style='color:#0F6E56'>Material Outward Summary - {project.name}</h3>"
+        f"<h3 style='color:#0F6E56'>Material Outward Summary - {project['name']}</h3>"
         f"<p><b>{count} Dispatch Note(s)</b> created on {items[0]['dispatch_date']}</p>"
         "<table style='border-collapse:collapse;width:100%;font-size:13px'>"
         "<thead><tr style='background:#E1F5EE'>"
