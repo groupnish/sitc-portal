@@ -8,6 +8,7 @@ from services.notifications import (notify_grn_created, notify_dispatch_created,
 from services.export import generate_ra_excel, generate_ra_pdf
 from datetime import date, datetime
 from decimal import Decimal
+from sqlalchemy.exc import IntegrityError
 import json, os
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -174,8 +175,17 @@ def wa_contacts():
 grn_bp = Blueprint("grn", __name__)
 
 def next_grn_number(pid):
-    count = GRN.query.filter_by(project_id=pid).count()
-    return f"GRN-{pid:03d}-{count+1:04d}"
+    """Generate next GRN number based on the highest existing suffix,
+    not row count — avoids collisions after deletes or concurrent saves."""
+    existing = GRN.query.filter_by(project_id=pid).with_entities(GRN.grn_number).all()
+    max_seq = 0
+    for (num,) in existing:
+        try:
+            seq = int(num.split("-")[-1])
+            max_seq = max(max_seq, seq)
+        except (ValueError, IndexError):
+            continue
+    return f"GRN-{pid:03d}-{max_seq+1:04d}"
 
 @grn_bp.route("/<int:pid>", methods=["GET"])
 @jwt_required()
@@ -188,20 +198,33 @@ def list_grns(pid):
 def create_grn(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
-    grn = GRN(
-        project_id=pid,
-        grn_number=next_grn_number(pid),
-        grn_date=date.fromisoformat(data["grn_date"]),
-        boq_item_id=data["boq_item_id"],
-        qty_received=data["qty_received"],
-        vendor_name=data.get("vendor_name",""),
-        challan_no=data.get("challan_no",""),
-        vehicle_no=data.get("vehicle_no",""),
-        remarks=data.get("remarks",""),
-        created_by=int(get_jwt_identity())
-    )
-    db.session.add(grn)
-    db.session.commit()
+
+    max_attempts = 5
+    grn = None
+    for attempt in range(max_attempts):
+        grn = GRN(
+            project_id=pid,
+            grn_number=next_grn_number(pid),
+            grn_date=date.fromisoformat(data["grn_date"]),
+            boq_item_id=data["boq_item_id"],
+            qty_received=data["qty_received"],
+            vendor_name=data.get("vendor_name",""),
+            challan_no=data.get("challan_no",""),
+            hsn_code=data.get("hsn_code",""),
+            vehicle_no=data.get("vehicle_no",""),
+            remarks=data.get("remarks",""),
+            created_by=int(get_jwt_identity())
+        )
+        db.session.add(grn)
+        try:
+            db.session.commit()
+            break
+        except IntegrityError:
+            db.session.rollback()
+            if attempt == max_attempts - 1:
+                return jsonify({"error": "Could not generate a unique GRN number — please retry"}), 500
+            continue
+
     # Store values before session expires
     grn_id     = grn.id
     grn_number = grn.grn_number
@@ -223,6 +246,7 @@ def create_grn(pid):
         "status": "received",
         "vendor_name": data.get("vendor_name",""),
         "challan_no": data.get("challan_no",""),
+        "hsn_code": data.get("hsn_code",""),
         "vehicle_no": data.get("vehicle_no",""),
         "remarks": data.get("remarks",""),
     }), 201
@@ -249,8 +273,17 @@ def delete_grn(gid):
 dispatch_bp = Blueprint("dispatch", __name__)
 
 def next_dn_number(pid):
-    count = DispatchNote.query.filter_by(project_id=pid).count()
-    return f"DN-{pid:03d}-{count+1:04d}"
+    """Generate next DN number based on the highest existing suffix,
+    not row count — avoids collisions after deletes or concurrent saves."""
+    existing = DispatchNote.query.filter_by(project_id=pid).with_entities(DispatchNote.dn_number).all()
+    max_seq = 0
+    for (num,) in existing:
+        try:
+            seq = int(num.split("-")[-1])
+            max_seq = max(max_seq, seq)
+        except (ValueError, IndexError):
+            continue
+    return f"DN-{pid:03d}-{max_seq+1:04d}"
 
 @dispatch_bp.route("/<int:pid>", methods=["GET"])
 @jwt_required()
@@ -263,21 +296,36 @@ def list_dispatches(pid):
 def create_dispatch(pid):
     data = request.get_json()
     project = Project.query.get_or_404(pid)
-    dn = DispatchNote(
-        project_id=pid,
-        dn_number=next_dn_number(pid),
-        dispatch_date=date.fromisoformat(data["dispatch_date"]),
-        boq_item_id=data["boq_item_id"],
-        qty_dispatched=data["qty_dispatched"],
-        site_destination=data.get("site_destination",""),
-        vehicle_no=data.get("vehicle_no",""),
-        driver_name=data.get("driver_name",""),
-        lr_number=data.get("lr_number",""),
-        remarks=data.get("remarks",""),
-        created_by=int(get_jwt_identity())
-    )
-    db.session.add(dn)
-    db.session.commit()
+
+    max_attempts = 5
+    dn = None
+    for attempt in range(max_attempts):
+        dn = DispatchNote(
+            project_id=pid,
+            dn_number=next_dn_number(pid),
+            dispatch_date=date.fromisoformat(data["dispatch_date"]),
+            boq_item_id=data["boq_item_id"],
+            qty_dispatched=data["qty_dispatched"],
+            site_destination=data.get("site_destination",""),
+            vehicle_no=data.get("vehicle_no",""),
+            driver_name=data.get("driver_name",""),
+            lr_number=data.get("lr_number",""),
+            bc_challan_no=data.get("bc_challan_no",""),
+            bc_invoice_no=data.get("bc_invoice_no",""),
+            eway_bill_no=data.get("eway_bill_no",""),
+            remarks=data.get("remarks",""),
+            created_by=int(get_jwt_identity())
+        )
+        db.session.add(dn)
+        try:
+            db.session.commit()
+            break
+        except IntegrityError:
+            db.session.rollback()
+            if attempt == max_attempts - 1:
+                return jsonify({"error": "Could not generate a unique DN number — please retry"}), 500
+            continue
+
     # Store values before session expires
     dn_id      = dn.id
     dn_number  = dn.dn_number
@@ -301,10 +349,13 @@ def create_dispatch(pid):
         "vehicle_no": data.get("vehicle_no",""),
         "driver_name": data.get("driver_name",""),
         "lr_number": data.get("lr_number",""),
+        "bc_challan_no": data.get("bc_challan_no",""),
+        "bc_invoice_no": data.get("bc_invoice_no",""),
+        "eway_bill_no": data.get("eway_bill_no",""),
         "remarks": data.get("remarks",""),
     }), 201
 
-@dispatch_bp.route("/delete/<int:did>", methods=["DELETE"])
+@dispatch_bp.route("/<int:did>/delete", methods=["DELETE"])
 @jwt_required()
 def delete_dispatch(did):
     claims = get_jwt()
@@ -382,6 +433,34 @@ def update_progress(pid):
         except Exception as e: print(f"Notify error: {e}")
     return jsonify({"message": f"{count} items updated"})
 
+@site_bp.route("/entry/<int:eid>", methods=["PUT"])
+@jwt_required()
+def update_progress_entry(eid):
+    """Admin-only: correct a previously logged site progress entry."""
+    err = admin_required()
+    if err: return err
+    entry = SiteProgress.query.get_or_404(eid)
+    data = request.get_json()
+    if "qty_installed" in data:
+        entry.qty_installed = data["qty_installed"]
+    if "qty_commissioned" in data:
+        entry.qty_commissioned = data["qty_commissioned"]
+    if "progress_date" in data and data["progress_date"]:
+        entry.progress_date = date.fromisoformat(data["progress_date"])
+    if "notes" in data:
+        entry.notes = data["notes"]
+    db.session.commit()
+    return jsonify(entry.to_dict())
+
+@site_bp.route("/entries/<int:pid>/<int:boq_item_id>", methods=["GET"])
+@jwt_required()
+def list_progress_entries(pid, boq_item_id):
+    """Full entry history for one BOQ item (used by admin edit UI)."""
+    entries = SiteProgress.query.filter_by(
+        project_id=pid, boq_item_id=boq_item_id
+    ).order_by(SiteProgress.progress_date.desc(), SiteProgress.id.desc()).all()
+    return jsonify([e.to_dict() for e in entries])
+
 # ── RA Bill ───────────────────────────────────────────────────────────────────
 
 ra_bp = Blueprint("ra", __name__)
@@ -412,7 +491,11 @@ def compute_ra(pid):
         total_installed   = sum(Decimal(str(e.qty_installed)) for e in all_progress)
         total_commissioned = sum(Decimal(str(e.qty_commissioned)) for e in all_progress)
 
-        if item.item_type in ["supply", "erection"]:
+        if item.item_type == "supply":
+            # Part 1: supply billing is driven by dispatched quantity, not site progress
+            all_dispatch = DispatchNote.query.filter_by(project_id=pid, boq_item_id=item.id).all()
+            qty_upto = sum(Decimal(str(d.qty_dispatched)) for d in all_dispatch)
+        elif item.item_type == "erection":
             qty_upto = total_installed
         else:
             qty_upto = total_commissioned
