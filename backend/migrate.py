@@ -40,6 +40,16 @@ def run():
             "CREATE TABLE IF NOT EXISTS advance_receipts (id SERIAL PRIMARY KEY, project_id INTEGER UNIQUE REFERENCES projects(id), amount_received NUMERIC(14,2) NOT NULL, date_received DATE NOT NULL, reference_no VARCHAR(100), notes TEXT, recorded_by INTEGER REFERENCES users(id), recorded_at TIMESTAMP DEFAULT NOW())",
             # BOQ Item — per-unit Advance-stage rate (Supply items only, set via Add Split Item)
             "ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS advance_rate NUMERIC(14,2) DEFAULT 0",
+            # RA Bill Line — Advance / Supply stage split (RA Bill formatting fix)
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS advance_rate NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS advance_amount_prev NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS advance_amount_this NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS advance_amount_upto NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS advance_amount_balance NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_prev NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_this NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_upto NUMERIC(14,2) DEFAULT 0",
+            "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_balance NUMERIC(14,2) DEFAULT 0",
         ]
         for sql in migrations:
             try:

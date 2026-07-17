@@ -123,32 +123,67 @@ def generate_ra_excel(ra, project, line_items):
             group_order.append(key)
         groups[key].append(li)
 
+    def write_stage_row(label, unit, po_qty, rate, qty_prev, amt_prev, qty_this, amt_this,
+                         qty_upto, amt_upto, qty_balance, amt_balance):
+        nonlocal r
+        cell(r, 1, "", align=center)
+        cell(r, 2, f"    • {label}", align=left)
+        cell(r, 3, unit, align=center)
+        cell(r, 4, po_qty, align=right, fmt="#,##0.000")
+        cell(r, 5, rate, align=right, fmt="#,##0.00")
+        cell(r, 6, qty_prev, align=right, fmt="#,##0.000")
+        cell(r, 7, amt_prev, align=right, fmt="#,##0.00")
+        cell(r, 8, qty_this, align=right, fmt="#,##0.000")
+        cell(r, 9, amt_this, align=right, fmt="#,##0.00")
+        cell(r, 10, qty_upto, align=right, fmt="#,##0.000")
+        cell(r, 11, amt_upto, align=right, fmt="#,##0.00")
+        cell(r, 12, qty_balance, align=right, fmt="#,##0.000")
+        cell(r, 13, amt_balance, align=right, fmt="#,##0.00")
+        r += 1
+
     for sr_no in group_order:
         items = groups[sr_no]
         desc = items[0]["description"][:200]
 
-        if len(items) > 1:
+        # Count how many stage sub-rows this group needs. A plain single
+        # Supply item with an active Advance stage now ALSO expands into
+        # Advance + Supply sub-rows (Payment-Terms driven), same as items
+        # that were created as separate BOQ rows via "Add Split Item".
+        stage_count = 0
+        for li in items:
+            stage_count += 2 if li.get("advance_applicable") else 1
+
+        if stage_count > 1:
             # Header row — item no + description, spans across the qty/rate columns
             ws.merge_cells(f"B{r}:M{r}")
             cell(r, 1, sr_no, bold=True, fill=gray_fill, align=center)
             cell(r, 2, desc, bold=True, fill=gray_fill, align=left)
             r += 1
             for li in items:
-                stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
-                cell(r, 1, "", align=center)
-                cell(r, 2, f"    • {stage_label}", align=left)
-                cell(r, 3, li["unit"], align=center)
-                cell(r, 4, li["po_qty"], align=right, fmt="#,##0.000")
-                cell(r, 5, li["rate"], align=right, fmt="#,##0.00")
-                cell(r, 6, li["qty_prev"], align=right, fmt="#,##0.000")
-                cell(r, 7, li["amount_prev"], align=right, fmt="#,##0.00")
-                cell(r, 8, li["qty_this"], align=right, fmt="#,##0.000")
-                cell(r, 9, li["amount_this"], align=right, fmt="#,##0.00")
-                cell(r, 10, li["qty_upto"], align=right, fmt="#,##0.000")
-                cell(r, 11, li["amount_upto"], align=right, fmt="#,##0.00")
-                cell(r, 12, li["qty_balance"], align=right, fmt="#,##0.000")
-                cell(r, 13, li["amount_balance"], align=right, fmt="#,##0.00")
-                r += 1
+                if li.get("advance_applicable"):
+                    write_stage_row(
+                        "Advance", li["unit"], li["po_qty"], li["advance_rate"],
+                        li["qty_prev"], li["advance_amount_prev"],
+                        li["qty_this"], li["advance_amount_this"],
+                        li["qty_upto"], li["advance_amount_upto"],
+                        li["qty_balance"], li["advance_amount_balance"],
+                    )
+                    write_stage_row(
+                        "Supply", li["unit"], li["po_qty"], li["rate"],
+                        li["qty_prev"], li["supply_only_amount_prev"],
+                        li["qty_this"], li["supply_only_amount_this"],
+                        li["qty_upto"], li["supply_only_amount_upto"],
+                        li["qty_balance"], li["supply_only_amount_balance"],
+                    )
+                else:
+                    stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                    write_stage_row(
+                        stage_label, li["unit"], li["po_qty"], li["rate"],
+                        li["qty_prev"], li["amount_prev"],
+                        li["qty_this"], li["amount_this"],
+                        li["qty_upto"], li["amount_upto"],
+                        li["qty_balance"], li["amount_balance"],
+                    )
         else:
             li = items[0]
             cell(r, 1, li["sr_no"], align=center)
@@ -329,12 +364,81 @@ def generate_ra_pdf(ra, project, line_items):
             group_order.append(key)
         groups[key].append(li)
 
+    def stage_subrow(label, unit, po_qty, rate, qty_prev, amt_prev, qty_this, amt_this,
+                      qty_upto, amt_upto, qty_balance, amt_balance):
+        return [
+            Paragraph("", cell_center),
+            Paragraph(f"&nbsp;&nbsp;&nbsp;• {label}", cell_style),
+            Paragraph(unit, cell_center),
+            Paragraph(f"{po_qty:,.3f}", cell_right),
+            Paragraph(f"{rate:,.2f}", cell_right),
+            Paragraph(f"{qty_prev:,.3f}", cell_right),
+            Paragraph(f"{amt_prev:,.2f}", cell_right),
+            Paragraph(f"{qty_this:,.3f}", cell_right),
+            Paragraph(f"{amt_this:,.2f}", cell_right),
+            Paragraph(f"{qty_upto:,.3f}", cell_right),
+            Paragraph(f"{amt_upto:,.2f}", cell_right),
+            Paragraph(f"{qty_balance:,.3f}", cell_right),
+            Paragraph(f"{amt_balance:,.2f}", cell_right),
+        ]
+
+    def flat_row(sr, desc_text, unit, po_qty, rate, qty_prev, amt_prev, qty_this, amt_this,
+                 qty_upto, amt_upto, qty_balance, amt_balance):
+        return [
+            Paragraph(str(sr), cell_center),
+            Paragraph(desc_text, cell_style),
+            Paragraph(unit, cell_center),
+            Paragraph(f"{po_qty:,.3f}", cell_right),
+            Paragraph(f"{rate:,.2f}", cell_right),
+            Paragraph(f"{qty_prev:,.3f}", cell_right),
+            Paragraph(f"{amt_prev:,.2f}", cell_right),
+            Paragraph(f"{qty_this:,.3f}", cell_right),
+            Paragraph(f"{amt_this:,.2f}", cell_right),
+            Paragraph(f"{qty_upto:,.3f}", cell_right),
+            Paragraph(f"{amt_upto:,.2f}", cell_right),
+            Paragraph(f"{qty_balance:,.3f}", cell_right),
+            Paragraph(f"{amt_balance:,.2f}", cell_right),
+        ]
+
     for sr_no in group_order:
         items = groups[sr_no]
         desc = items[0]["description"][:150]
 
-        if len(items) > 1:
-            # Multi-stage grouped item — description header spans the row, then stage sub-rows
+        # Build the list of stage sub-rows this group needs. A plain single
+        # Supply item with an active Advance stage now ALSO expands into
+        # Advance + Supply sub-rows (Payment-Terms driven), same as items
+        # that were created as separate BOQ rows via "Add Split Item".
+        sub_row_data = []  # each entry: (label, row_cells)
+        for li in items:
+            if li.get("advance_applicable"):
+                sub_row_data.append(("Advance", stage_subrow(
+                    "Advance", li["unit"], li["po_qty"], li["advance_rate"],
+                    li["qty_prev"], li["advance_amount_prev"],
+                    li["qty_this"], li["advance_amount_this"],
+                    li["qty_upto"], li["advance_amount_upto"],
+                    li["qty_balance"], li["advance_amount_balance"],
+                )))
+                sub_row_data.append(("Supply", stage_subrow(
+                    "Supply", li["unit"], li["po_qty"], li["rate"],
+                    li["qty_prev"], li["supply_only_amount_prev"],
+                    li["qty_this"], li["supply_only_amount_this"],
+                    li["qty_upto"], li["supply_only_amount_upto"],
+                    li["qty_balance"], li["supply_only_amount_balance"],
+                )))
+            else:
+                stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                sub_row_data.append((stage_label, stage_subrow(
+                    stage_label, li["unit"], li["po_qty"], li["rate"],
+                    li["qty_prev"], li["amount_prev"],
+                    li["qty_this"], li["amount_this"],
+                    li["qty_upto"], li["amount_upto"],
+                    li["qty_balance"], li["amount_balance"],
+                )))
+
+        if len(sub_row_data) > 1:
+            # Needs header + indented sub-row treatment (either a true split
+            # item with multiple BOQ rows, or a plain item whose single stage
+            # expanded into Advance + Supply)
             table_data.append([
                 Paragraph(f"<b>{sr_no}</b>", cell_style),
                 Paragraph(f"<b>{desc}</b>", cell_style),
@@ -342,42 +446,19 @@ def generate_ra_pdf(ra, project, line_items):
             ])
             header_row_indices.append(row_idx)
             row_idx += 1
-            for li in items:
-                stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
-                table_data.append([
-                    Paragraph("", cell_center),
-                    Paragraph(f"&nbsp;&nbsp;&nbsp;• {stage_label}", cell_style),
-                    Paragraph(li["unit"], cell_center),
-                    Paragraph(f"{li['po_qty']:,.3f}", cell_right),
-                    Paragraph(f"{li['rate']:,.2f}", cell_right),
-                    Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
-                    Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
-                    Paragraph(f"{li['qty_this']:,.3f}", cell_right),
-                    Paragraph(f"{li['amount_this']:,.2f}", cell_right),
-                    Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
-                    Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
-                    Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
-                    Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
-                ])
+            for _, row in sub_row_data:
+                table_data.append(row)
                 row_idx += 1
         else:
-            # Single-stage item (old-style manual entry) — unchanged flat row
+            # Single flat row — plain item, no stages to show
             li = items[0]
-            table_data.append([
-                Paragraph(str(li["sr_no"]), cell_center),
-                Paragraph(desc, cell_style),
-                Paragraph(li["unit"], cell_center),
-                Paragraph(f"{li['po_qty']:,.3f}", cell_right),
-                Paragraph(f"{li['rate']:,.2f}", cell_right),
-                Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
-                Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
-                Paragraph(f"{li['qty_this']:,.3f}", cell_right),
-                Paragraph(f"{li['amount_this']:,.2f}", cell_right),
-                Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
-                Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
-                Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
-                Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
-            ])
+            table_data.append(flat_row(
+                li["sr_no"], desc, li["unit"], li["po_qty"], li["rate"],
+                li["qty_prev"], li["amount_prev"],
+                li["qty_this"], li["amount_this"],
+                li["qty_upto"], li["amount_upto"],
+                li["qty_balance"], li["amount_balance"],
+            ))
             row_idx += 1
 
     col_widths = [10*mm, 55*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]

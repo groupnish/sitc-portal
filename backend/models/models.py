@@ -405,6 +405,26 @@ class RABillLine(db.Model):
     amount_upto   = db.Column(db.Numeric(14, 2), default=0)
     amount_balance = db.Column(db.Numeric(14, 2), default=0)
 
+    # ── Advance / Supply stage breakdown (Payment Terms driven) ──────────
+    # amount_prev/this/upto/balance above stay as the TOTAL for that item
+    # (backward compatible with any existing consumer). The two blocks below
+    # split that total into its Advance-stage and Supply-stage portions so
+    # the RA Bill document can show them as separate sub-rows under each
+    # item. advance_rate = 0 means the Advance stage was not applicable/
+    # active for this item on this bill (advance not yet recorded, or
+    # item_type isn't "supply") — in that case supply_only_* mirrors
+    # amount_* exactly and no Advance sub-row should be rendered.
+    advance_rate            = db.Column(db.Numeric(14, 2), default=0)
+    advance_amount_prev     = db.Column(db.Numeric(14, 2), default=0)
+    advance_amount_this     = db.Column(db.Numeric(14, 2), default=0)
+    advance_amount_upto     = db.Column(db.Numeric(14, 2), default=0)
+    advance_amount_balance  = db.Column(db.Numeric(14, 2), default=0)
+
+    supply_only_amount_prev    = db.Column(db.Numeric(14, 2), default=0)
+    supply_only_amount_this    = db.Column(db.Numeric(14, 2), default=0)
+    supply_only_amount_upto    = db.Column(db.Numeric(14, 2), default=0)
+    supply_only_amount_balance = db.Column(db.Numeric(14, 2), default=0)
+
     boq_item      = db.relationship("BOQItem", backref="ra_lines")
 
     def to_dict(self):
@@ -421,6 +441,16 @@ class RABillLine(db.Model):
             "qty_upto": float(self.qty_upto), "qty_balance": float(self.qty_balance),
             "amount_prev": float(self.amount_prev), "amount_this": float(self.amount_this),
             "amount_upto": float(self.amount_upto), "amount_balance": float(self.amount_balance),
+            "advance_rate": float(self.advance_rate or 0),
+            "advance_applicable": float(self.advance_rate or 0) > 0,
+            "advance_amount_prev": float(self.advance_amount_prev or 0),
+            "advance_amount_this": float(self.advance_amount_this or 0),
+            "advance_amount_upto": float(self.advance_amount_upto or 0),
+            "advance_amount_balance": float(self.advance_amount_balance or 0),
+            "supply_only_amount_prev": float(self.supply_only_amount_prev or 0),
+            "supply_only_amount_this": float(self.supply_only_amount_this or 0),
+            "supply_only_amount_upto": float(self.supply_only_amount_upto or 0),
+            "supply_only_amount_balance": float(self.supply_only_amount_balance or 0),
         }
 
 

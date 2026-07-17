@@ -130,26 +130,43 @@ def compute_ra(pid):
             qty_upto       = qty_prev_total + qty_curr
             qty_balance    = max(po_qty - qty_upto, Decimal("0"))
 
-        # ── Advance+Supply combined billing (Supply items only) ──────────
+        # ── Advance / Supply stage split (Supply items only) ─────────────
         # Once the advance gate is active and this item has an advance_rate
-        # (set at "Add Split Item" creation time from the project's Advance %),
-        # THIS BILL's amount embeds the Advance portion for whatever qty is
-        # newly dispatched this period, and that same portion is immediately
-        # recovered as a deduction on this bill. Previously-billed ("prev")
-        # amounts are NOT retroactively changed — the adjustment only applies
-        # to what's being invoiced right now, matching how the invoice is
-        # actually raised.
-        item_adv_recovery = Decimal("0")
-        if item.item_type == "supply" and advance_gate_active and item_advance_rate > 0:
-            combined_rate = rate + item_advance_rate
-            amt_this = qty_curr * combined_rate
-            item_adv_recovery = (qty_curr * item_advance_rate).quantize(Decimal("0.01"))
-        else:
-            amt_this = qty_curr * rate
+        # (set at "Add Split Item" creation time, or derived live above),
+        # THIS BILL's Advance portion is tracked as its OWN stage (own rate,
+        # own amount) rather than folded into the Supply amount — this is
+        # what lets the RA Bill document show "Advance" and "Supply" as
+        # separate sub-rows under the item, per Payment Terms. The Advance
+        # amount is billed for whatever qty is newly dispatched this period,
+        # and that same amount is immediately recovered as a deduction on
+        # this bill. Previously-billed ("prev") amounts are NOT retroactively
+        # changed — the adjustment only applies to what's being invoiced
+        # right now, matching how the invoice is actually raised, and matches
+        # the existing non-retroactive recovery rule.
+        advance_applicable = (item.item_type == "supply" and advance_gate_active
+                               and item_advance_rate > 0)
 
-        amt_prev    = qty_prev_total * rate
-        amt_upto    = amt_prev + amt_this
-        amt_balance = qty_balance * rate
+        # Supply-only amounts — pure rate, never includes Advance
+        amt_prev_supply    = qty_prev_total * rate
+        amt_this_supply    = qty_curr * rate
+        amt_upto_supply    = amt_prev_supply + amt_this_supply
+        amt_balance_supply = qty_balance * rate
+
+        # Advance-only amounts — 0 unless this item is under the active gate
+        item_adv_rate_used = item_advance_rate if advance_applicable else Decimal("0")
+        amt_this_adv    = (qty_curr * item_adv_rate_used).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
+        amt_prev_adv     = Decimal("0")  # non-retroactive — prev never carries Advance
+        amt_upto_adv     = amt_prev_adv + amt_this_adv
+        amt_balance_adv  = (qty_balance * item_adv_rate_used).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
+
+        item_adv_recovery = amt_this_adv
+
+        # TOTAL amounts (backward compatible — what any existing consumer of
+        # amount_prev/this/upto/balance expects: Supply + Advance combined)
+        amt_prev    = amt_prev_supply + amt_prev_adv
+        amt_this    = amt_this_supply + amt_this_adv
+        amt_upto    = amt_upto_supply + amt_upto_adv
+        amt_balance = amt_balance_supply  # Advance never reduces "Bal Amt", matches prior behaviour
 
         if item.item_type == "supply":
             supply_prev += amt_prev; supply_this += amt_this
@@ -176,6 +193,16 @@ def compute_ra(pid):
             "amount_balance":float(amt_balance),
             "item_type":     item.item_type,
             "advance_recovery_this_item": float(item_adv_recovery),
+            "advance_applicable": advance_applicable,
+            "advance_rate": float(item_adv_rate_used),
+            "advance_amount_prev": float(amt_prev_adv),
+            "advance_amount_this": float(amt_this_adv),
+            "advance_amount_upto": float(amt_upto_adv),
+            "advance_amount_balance": float(amt_balance_adv),
+            "supply_only_amount_prev": float(amt_prev_supply),
+            "supply_only_amount_this": float(amt_this_supply),
+            "supply_only_amount_upto": float(amt_upto_supply),
+            "supply_only_amount_balance": float(amt_balance_supply),
         })
 
     # ec_* kept as derived sum for Tax Invoice / Reconciliation compatibility
@@ -278,6 +305,15 @@ def save_ra(pid):
             amount_this=li["amount_this"],
             amount_upto=li["amount_upto"],
             amount_balance=li["amount_balance"],
+            advance_rate=li.get("advance_rate", 0),
+            advance_amount_prev=li.get("advance_amount_prev", 0),
+            advance_amount_this=li.get("advance_amount_this", 0),
+            advance_amount_upto=li.get("advance_amount_upto", 0),
+            advance_amount_balance=li.get("advance_amount_balance", 0),
+            supply_only_amount_prev=li.get("supply_only_amount_prev", li["amount_prev"]),
+            supply_only_amount_this=li.get("supply_only_amount_this", li["amount_this"]),
+            supply_only_amount_upto=li.get("supply_only_amount_upto", li["amount_upto"]),
+            supply_only_amount_balance=li.get("supply_only_amount_balance", li["amount_balance"]),
         )
         db.session.add(line)
 
