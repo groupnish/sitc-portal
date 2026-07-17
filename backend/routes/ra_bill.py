@@ -50,9 +50,20 @@ def compute_ra(pid):
 
     # Advance gate — recovery only activates once Accounts has recorded the
     # one-time actual Advance Received entry. Kept purely as a record/audit
-    # trail (not a capped pool) — recovery itself is computed per item below.
+    # trail (not a capped pool) — recovery itself is derived per item below.
     advance_receipt = AdvanceReceipt.query.filter_by(project_id=pid).first()
     advance_gate_active = advance_receipt is not None
+
+    # Advance-to-Supply ratio, derived live from the project's CURRENT Payment
+    # Terms percentages. Applied to EVERY Supply item's existing rate — works
+    # regardless of how/when that item was created (Add Split Item, manual
+    # entry, or Excel import), and stays correct even if % is edited later.
+    # (item.rate represents the Supply% portion of that item's total value,
+    # so rate * (advance_pct / supply_pct) recovers the equivalent Advance
+    # portion at the same per-unit scale.)
+    supply_pct_proj  = Decimal(str(project.pt_lc_pct or 0))
+    advance_pct_proj = Decimal(str(project.pt_advance_pct or 0))
+    advance_to_supply_ratio = (advance_pct_proj / supply_pct_proj) if supply_pct_proj > 0 else Decimal("0")
 
     lines = []
     # 3 separate stage buckets — Supply / Installation / Commissioning
@@ -64,7 +75,11 @@ def compute_ra(pid):
     for item in boq_items:
         rate = Decimal(str(item.rate))
         po_qty = Decimal(str(item.po_qty))
-        item_advance_rate = Decimal(str(item.advance_rate or 0))
+        # Prefer a per-item stored advance_rate if explicitly set (e.g. a
+        # future manual override); otherwise derive it live from this item's
+        # own Supply rate using the project's current Advance/Supply ratio.
+        stored_advance_rate = Decimal(str(item.advance_rate or 0))
+        item_advance_rate = stored_advance_rate if stored_advance_rate > 0 else (rate * advance_to_supply_ratio).quantize(Decimal("0.01"))
 
         if item.item_type == "supply":
             # Supply billing is driven by DISPATCHED quantity, not site progress
