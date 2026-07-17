@@ -396,6 +396,7 @@ class RABillLine(db.Model):
             "unit": self.boq_item.unit if self.boq_item else "",
             "rate": float(self.boq_item.rate) if self.boq_item else 0,
             "po_qty": float(self.boq_item.po_qty) if self.boq_item else 0,
+            "item_type": self.boq_item.item_type if self.boq_item else "",
             "qty_prev": float(self.qty_prev), "qty_this": float(self.qty_this),
             "qty_upto": float(self.qty_upto), "qty_balance": float(self.qty_balance),
             "amount_prev": float(self.amount_prev), "amount_this": float(self.amount_this),

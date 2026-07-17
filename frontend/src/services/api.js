@@ -45,6 +45,7 @@ export const projects = {
 export const boq = {
   list:   pid => api.get(`/boq/${pid}`),
   add:    (pid,d) => api.post(`/boq/${pid}`, d),
+  addSplitItem: (pid,d) => api.post(`/boq/${pid}/add-split-item`, d),
   bulk:   (pid,d) => api.post(`/boq/${pid}/bulk`, d),
   update: (id,d) => api.put(`/boq/item/${id}`, d),
   del:    id => api.delete(`/boq/item/${id}`),

@@ -127,16 +127,32 @@ export default function ProjectsPage() {
               </>}
 
               {tab==='payment' && <>
-                <div className="form-grid form-grid-3">
-                  <div className="form-group"><label className="form-label">Advance % (Part 1)</label><input className="form-input" type="number" value={form.pt_advance_pct} onChange={e=>set('pt_advance_pct',e.target.value)} /></div>
-                  <div className="form-group"><label className="form-label">LC % (Part 1)</label><input className="form-input" type="number" value={form.pt_lc_pct} onChange={e=>set('pt_lc_pct',e.target.value)} /></div>
-                  <div className="form-group"><label className="form-label">Installation % (Part 2)</label><input className="form-input" type="number" value={form.pt_installation_pct} onChange={e=>set('pt_installation_pct',e.target.value)} /></div>
+                <div className="alert alert-info" style={{marginBottom:12, fontSize:12}}>
+                  <b>Supply %, Installation %, Commissioning %</b> together define how a BOQ item's
+                  total value splits across stages (should sum to 100%). Used by <b>BOQ Manager →
+                  Add Split Item</b> to auto-calculate each stage's rate from one total value.
+                  <br/><b>Advance %</b> is separately applied as advance recovery on Supply value during RA billing.
                 </div>
                 <div className="form-grid form-grid-3">
-                  <div className="form-group"><label className="form-label">Commissioning % (Part 2)</label><input className="form-input" type="number" value={form.pt_commissioning_pct} onChange={e=>set('pt_commissioning_pct',e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Advance %</label><input className="form-input" type="number" value={form.pt_advance_pct} onChange={e=>set('pt_advance_pct',e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Supply %</label><input className="form-input" type="number" value={form.pt_lc_pct} onChange={e=>set('pt_lc_pct',e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Installation %</label><input className="form-input" type="number" value={form.pt_installation_pct} onChange={e=>set('pt_installation_pct',e.target.value)} /></div>
+                </div>
+                <div className="form-grid form-grid-3">
+                  <div className="form-group"><label className="form-label">Commissioning %</label><input className="form-input" type="number" value={form.pt_commissioning_pct} onChange={e=>set('pt_commissioning_pct',e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">Retention %</label><input className="form-input" type="number" value={form.pt_retention_pct} onChange={e=>set('pt_retention_pct',e.target.value)} /></div>
                   <div className="form-group"><label className="form-label">LD % per week</label><input className="form-input" type="number" value={form.pt_ld_pct} onChange={e=>set('pt_ld_pct',e.target.value)} /></div>
                 </div>
+                {(() => {
+                  const sum = (parseFloat(form.pt_lc_pct)||0) + (parseFloat(form.pt_installation_pct)||0) + (parseFloat(form.pt_commissioning_pct)||0)
+                  const ok = Math.abs(sum - 100) < 0.01
+                  return (
+                    <div className={`alert ${ok ? 'alert-success' : 'alert-warning'}`} style={{marginBottom:12, fontSize:12}}>
+                      Supply + Installation + Commissioning = <b>{sum.toFixed(1)}%</b>
+                      {ok ? ' ✓ Adds up to 100%' : ' — should total 100% for correct item value split'}
+                    </div>
+                  )
+                })()}
                 <div className="form-group" style={{marginBottom:12}}><label className="form-label">Advance received (incl. GST) ₹</label><input className="form-input" type="number" value={form.advance_received_incl_gst} onChange={e=>set('advance_received_incl_gst',e.target.value)} /></div>
                 <div className="form-group"><label className="form-label">Payment terms notes</label><textarea className="form-textarea" value={form.pt_notes} onChange={e=>set('pt_notes',e.target.value)} placeholder="Describe payment terms in detail..." /></div>
               </>}

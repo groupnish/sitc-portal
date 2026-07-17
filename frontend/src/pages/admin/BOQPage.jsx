@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import toast from 'react-hot-toast'
 
 const BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_zone:'MPS SITE', item_type:'supply', hsn_code:'' }
+const SPLIT_BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', total_rate:'', site_zone:'MPS SITE', hsn_code:'' }
 const ZONES = ['MPS SITE','STP SITE','SPS SITE','GENERAL']
 const TYPES = ['supply','erection','commissioning']
 
@@ -113,6 +114,9 @@ export function BOQPage() {
   const [items, setItems]     = useState([])
   const [form, setForm]       = useState(BLANK)
   const [showForm, setShowForm] = useState(false)
+  const [splitForm, setSplitForm] = useState(SPLIT_BLANK)
+  const [showSplitForm, setShowSplitForm] = useState(false)
+  const [splitSubmitting, setSplitSubmitting] = useState(false)
   const [filter, setFilter]   = useState('all')
   const [search, setSearch]   = useState('')
   const [editingId, setEditingId] = useState(null) // inline edit
@@ -142,6 +146,32 @@ export function BOQPage() {
       setForm(BLANK); setShowForm(false); load()
     } catch(e) { toast.error(e.response?.data?.error || 'Error') }
   }
+
+  const setSplit = (k, v) => setSplitForm(f => ({ ...f, [k]: v }))
+
+  // ── Add split item (auto Supply/Install/Commission from total value) ──────
+  const submitSplit = async e => {
+    e.preventDefault()
+    setSplitSubmitting(true)
+    try {
+      const data = {
+        ...splitForm,
+        po_qty: parseFloat(splitForm.po_qty),
+        total_rate: parseFloat(splitForm.total_rate || 0),
+      }
+      const res = await boq.addSplitItem(activeProject.id, data)
+      toast.success(res.data.message)
+      setSplitForm(SPLIT_BLANK); setShowSplitForm(false); load()
+    } catch(e) { toast.error(e.response?.data?.error || 'Error creating split item') }
+    finally { setSplitSubmitting(false) }
+  }
+
+  // Live preview of the 3 stage amounts, using project's split percentages
+  const supplyPct  = parseFloat(activeProject?.pt_lc_pct) || 0
+  const installPct = parseFloat(activeProject?.pt_installation_pct) || 0
+  const commPct    = parseFloat(activeProject?.pt_commissioning_pct) || 0
+  const splitPctSum = supplyPct + installPct + commPct
+  const totalRateNum = parseFloat(splitForm.total_rate) || 0
 
   const del = async id => {
     if (!confirm('Delete this BOQ item?')) return
@@ -211,8 +241,13 @@ export function BOQPage() {
               onClick={() => fileInputRef.current?.click()}>
               {importing ? 'Reading…' : '⬆ Import Excel'}
             </button>
+            <button className="btn btn-sm"
+              onClick={() => { setSplitForm(SPLIT_BLANK); setShowSplitForm(s => !s); setShowForm(false); setEditingId(null) }}
+              style={{ background:'var(--purple)', color:'#fff', border:'none' }}>
+              {showSplitForm ? 'Cancel' : '+ Add Split Item'}
+            </button>
             <button className="btn btn-primary btn-sm"
-              onClick={() => { setForm(BLANK); setShowForm(s => !s); setEditingId(null) }}>
+              onClick={() => { setForm(BLANK); setShowForm(s => !s); setShowSplitForm(false); setEditingId(null) }}>
               {showForm ? 'Cancel' : '+ Add item'}
             </button>
           </>}
@@ -268,6 +303,114 @@ export function BOQPage() {
               </button>
               <button className="btn btn-sm" disabled={importing} onClick={cancelImport}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Split Item form (auto Supply/Install/Commission) ───────────── */}
+      {showSplitForm && (
+        <div className="card" style={{ marginBottom:16, border:'2px solid var(--purple)' }}>
+          <div className="card-header">
+            <span className="card-title" style={{ color:'var(--purple)' }}>
+              Add Split Item — auto Supply / Installation / Commissioning
+            </span>
+          </div>
+          <div className="card-body">
+            {splitPctSum <= 0 ? (
+              <div className="alert alert-warning" style={{ marginBottom:12 }}>
+                This project has no Supply %, Installation %, Commissioning % set.
+                Go to <b>Admin → Projects → Edit → Payment tab</b> and set these first.
+              </div>
+            ) : (
+              <div className={`alert ${Math.abs(splitPctSum-100)<0.01 ? 'alert-info' : 'alert-warning'}`} style={{ marginBottom:12, fontSize:12 }}>
+                Using this project's split — Supply: <b>{supplyPct}%</b>, Installation: <b>{installPct}%</b>, Commissioning: <b>{commPct}%</b>
+                {' '}(sum: {splitPctSum.toFixed(1)}%{Math.abs(splitPctSum-100)>=0.01 ? ' — does not total 100%, check Admin → Projects → Payment tab' : ''})
+              </div>
+            )}
+            <form onSubmit={submitSplit}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Item No. *</label>
+                  <input className="form-input" required value={splitForm.sr_no}
+                    onChange={e => setSplit('sr_no', e.target.value)} placeholder="e.g. 5" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Unit *</label>
+                  <input className="form-input" required value={splitForm.unit}
+                    onChange={e => setSplit('unit', e.target.value)} />
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">Description *</label>
+                <textarea className="form-textarea" required value={splitForm.description}
+                  onChange={e => setSplit('description', e.target.value)} />
+              </div>
+              <div className="form-grid form-grid-3">
+                <div className="form-group">
+                  <label className="form-label">PO Qty *</label>
+                  <input className="form-input" type="number" step="any" required value={splitForm.po_qty}
+                    onChange={e => setSplit('po_qty', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Total Rate (₹) — per unit *</label>
+                  <input className="form-input" type="number" step="any" required value={splitForm.total_rate}
+                    onChange={e => setSplit('total_rate', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Site Zone</label>
+                  <select className="form-select" value={splitForm.site_zone}
+                    onChange={e => setSplit('site_zone', e.target.value)}>
+                    {ZONES.map(z => <option key={z}>{z}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">HSN / SAC Code</label>
+                <input className="form-input" value={splitForm.hsn_code}
+                  onChange={e => setSplit('hsn_code', e.target.value)} placeholder="e.g. 8537" />
+              </div>
+
+              {totalRateNum > 0 && splitPctSum > 0 && (
+                <div style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:12, marginBottom:14 }}>
+                  <div style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>Preview — 3 rows will be created:</div>
+                  <table style={{ width:'100%', fontSize:12 }}>
+                    <thead>
+                      <tr style={{ textAlign:'left', color:'var(--text-s)' }}>
+                        <th>Stage</th><th>Item No.</th><th style={{textAlign:'right'}}>Rate (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {supplyPct > 0 && (
+                        <tr>
+                          <td><span className="badge badge-teal">supply</span></td>
+                          <td>{splitForm.sr_no || '—'}</td>
+                          <td style={{ textAlign:'right' }}>₹{(totalRateNum * supplyPct/100).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                        </tr>
+                      )}
+                      {installPct > 0 && (
+                        <tr>
+                          <td><span className="badge badge-coral">erection</span></td>
+                          <td>{splitForm.sr_no || '—'}</td>
+                          <td style={{ textAlign:'right' }}>₹{(totalRateNum * installPct/100).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                        </tr>
+                      )}
+                      {commPct > 0 && (
+                        <tr>
+                          <td><span className="badge badge-amber">commissioning</span></td>
+                          <td>{splitForm.sr_no || '—'}</td>
+                          <td style={{ textAlign:'right' }}>₹{(totalRateNum * commPct/100).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <button className="btn btn-primary" type="submit" disabled={splitSubmitting || splitPctSum <= 0}
+                style={{ background:'var(--purple)', borderColor:'var(--purple)' }}>
+                {splitSubmitting ? 'Creating…' : 'Create 3 stage rows'}
+              </button>
+            </form>
           </div>
         </div>
       )}

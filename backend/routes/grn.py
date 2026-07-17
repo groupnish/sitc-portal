@@ -82,6 +82,85 @@ def add_boq_item(pid):
     db.session.add(item); db.session.commit()
     return jsonify(item.to_dict()), 201
 
+@boq_bp.route("/<int:pid>/add-split-item", methods=["POST"])
+@jwt_required()
+def add_split_boq_item(pid):
+    """
+    Add ONE BOQ item with a total value; auto-generate 3 stage rows
+    (Supply / Installation / Commissioning) with rates derived from the
+    project's Payment Terms percentages (Supply %, Installation %,
+    Commissioning % — set in Admin -> Projects -> Payment tab).
+    All 3 rows share the SAME Item No. (sr_no) so they track together
+    through Dispatch, Site Progress, RA Bill, and Reconciliation.
+    """
+    err = admin_required()
+    if err: return err
+    project = Project.query.get_or_404(pid)
+    data = request.get_json()
+
+    required = ["sr_no", "description", "po_qty", "unit", "total_rate"]
+    missing = [f for f in required if not data.get(f) and data.get(f) != 0]
+    if missing:
+        return jsonify({"error": f"Missing required field(s): {', '.join(missing)}"}), 400
+
+    sr_no        = str(data["sr_no"]).strip()
+    description  = data["description"]
+    po_qty       = float(data["po_qty"])
+    unit         = data["unit"]
+    total_rate   = float(data["total_rate"])
+    hsn_code     = data.get("hsn_code", "")
+    site_zone    = data.get("site_zone", "GENERAL")
+
+    supply_pct  = float(project.pt_lc_pct or 0)
+    install_pct = float(project.pt_installation_pct or 0)
+    comm_pct    = float(project.pt_commissioning_pct or 0)
+
+    pct_sum = supply_pct + install_pct + comm_pct
+    if pct_sum <= 0:
+        return jsonify({
+            "error": "Project's Supply %, Installation %, Commissioning % are not set "
+                     "(sum is 0). Set them in Admin -> Projects -> Payment tab first."
+        }), 400
+
+    stages = [
+        ("supply",        supply_pct,  ""),
+        ("erection",      install_pct, "A"),
+        ("commissioning", comm_pct,    "B"),
+    ]
+
+    created = []
+    max_sort = db.session.query(db.func.coalesce(db.func.max(BOQItem.sort_order), 0))\
+                          .filter_by(project_id=pid).scalar()
+
+    for i, (item_type, pct, suffix) in enumerate(stages):
+        if pct <= 0:
+            continue  # skip stages with 0% — e.g. pure-supply items with no install/commission
+        stage_rate = round(total_rate * pct / 100, 2)
+        item = BOQItem(
+            project_id=pid,
+            sr_no=sr_no,                    # SAME item number across all 3 stage rows
+            description=description,
+            po_qty=po_qty,
+            unit=unit,
+            rate=stage_rate,
+            amount=round(stage_rate * po_qty, 2),
+            site_zone=site_zone,
+            item_type=item_type,
+            hsn_code=hsn_code,
+            sort_order=max_sort + i + 1,
+        )
+        db.session.add(item)
+        created.append(item)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Created {len(created)} stage row(s) for item {sr_no}",
+        "split_pct_used": {"supply": supply_pct, "installation": install_pct, "commissioning": comm_pct},
+        "items": [i.to_dict() for i in created],
+    }), 201
+
+
 @boq_bp.route("/<int:pid>/bulk", methods=["POST"])
 @jwt_required()
 def bulk_add_boq(pid):

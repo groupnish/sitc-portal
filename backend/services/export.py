@@ -110,21 +110,61 @@ def generate_ra_excel(ra, project, line_items):
         cell(r, i, h, bold=True, fill=gray_fill)
     r += 1
 
+    # Group by Item No. (sr_no). Split items (same sr_no, multiple stages)
+    # show ONE description header row, then a sub-row per stage that exists.
+    STAGE_LABELS = {"supply": "Supply", "erection": "Installation", "commissioning": "Commissioning"}
+
+    groups = {}
+    group_order = []
     for li in line_items:
-        cell(r, 1, li["sr_no"], align=center)
-        cell(r, 2, li["description"][:200], align=left)
-        cell(r, 3, li["unit"], align=center)
-        cell(r, 4, li["po_qty"], align=right, fmt="#,##0.000")
-        cell(r, 5, li["rate"], align=right, fmt="#,##0.00")
-        cell(r, 6, li["qty_prev"], align=right, fmt="#,##0.000")
-        cell(r, 7, li["amount_prev"], align=right, fmt="#,##0.00")
-        cell(r, 8, li["qty_this"], align=right, fmt="#,##0.000")
-        cell(r, 9, li["amount_this"], align=right, fmt="#,##0.00")
-        cell(r, 10, li["qty_upto"], align=right, fmt="#,##0.000")
-        cell(r, 11, li["amount_upto"], align=right, fmt="#,##0.00")
-        cell(r, 12, li["qty_balance"], align=right, fmt="#,##0.000")
-        cell(r, 13, li["amount_balance"], align=right, fmt="#,##0.00")
-        r += 1
+        key = li["sr_no"]
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(li)
+
+    for sr_no in group_order:
+        items = groups[sr_no]
+        desc = items[0]["description"][:200]
+
+        if len(items) > 1:
+            # Header row — item no + description, spans across the qty/rate columns
+            ws.merge_cells(f"B{r}:M{r}")
+            cell(r, 1, sr_no, bold=True, fill=gray_fill, align=center)
+            cell(r, 2, desc, bold=True, fill=gray_fill, align=left)
+            r += 1
+            for li in items:
+                stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                cell(r, 1, "", align=center)
+                cell(r, 2, f"    • {stage_label}", align=left)
+                cell(r, 3, li["unit"], align=center)
+                cell(r, 4, li["po_qty"], align=right, fmt="#,##0.000")
+                cell(r, 5, li["rate"], align=right, fmt="#,##0.00")
+                cell(r, 6, li["qty_prev"], align=right, fmt="#,##0.000")
+                cell(r, 7, li["amount_prev"], align=right, fmt="#,##0.00")
+                cell(r, 8, li["qty_this"], align=right, fmt="#,##0.000")
+                cell(r, 9, li["amount_this"], align=right, fmt="#,##0.00")
+                cell(r, 10, li["qty_upto"], align=right, fmt="#,##0.000")
+                cell(r, 11, li["amount_upto"], align=right, fmt="#,##0.00")
+                cell(r, 12, li["qty_balance"], align=right, fmt="#,##0.000")
+                cell(r, 13, li["amount_balance"], align=right, fmt="#,##0.00")
+                r += 1
+        else:
+            li = items[0]
+            cell(r, 1, li["sr_no"], align=center)
+            cell(r, 2, li["description"][:200], align=left)
+            cell(r, 3, li["unit"], align=center)
+            cell(r, 4, li["po_qty"], align=right, fmt="#,##0.000")
+            cell(r, 5, li["rate"], align=right, fmt="#,##0.00")
+            cell(r, 6, li["qty_prev"], align=right, fmt="#,##0.000")
+            cell(r, 7, li["amount_prev"], align=right, fmt="#,##0.00")
+            cell(r, 8, li["qty_this"], align=right, fmt="#,##0.000")
+            cell(r, 9, li["amount_this"], align=right, fmt="#,##0.00")
+            cell(r, 10, li["qty_upto"], align=right, fmt="#,##0.000")
+            cell(r, 11, li["amount_upto"], align=right, fmt="#,##0.00")
+            cell(r, 12, li["qty_balance"], align=right, fmt="#,##0.000")
+            cell(r, 13, li["amount_balance"], align=right, fmt="#,##0.00")
+            r += 1
 
     r += 1
     def summary_row(label, value, bold=False, fill=None):
@@ -266,33 +306,81 @@ def generate_ra_pdf(ra, project, line_items):
     elements.append(party_table)
     elements.append(Spacer(1, 8))
 
-    # Line items table
+    # Line items table — grouped by Item No. (sr_no).
+    # Split BOQ items (same sr_no, multiple stages: supply/erection/commissioning)
+    # show ONE description header row, then a sub-row per stage that actually
+    # exists (0% stages are never created, so they're naturally absent).
+    STAGE_LABELS = {"supply": "Supply", "erection": "Installation", "commissioning": "Commissioning"}
+
     headers = ["Sr.", "Description", "Unit", "PO Qty", "Rate",
                "Prev Qty", "Prev Amt", "This Qty", "This Amt",
                "Upto Qty", "Upto Amt", "Bal Qty", "Bal Amt"]
     table_data = [[Paragraph(f"<b>{h}</b>", cell_center) for h in headers]]
+    header_row_indices = []  # rows to span + shade as group headers
+    row_idx = 1  # header row is row 0
 
+    groups = {}
+    group_order = []
     for li in line_items:
-        desc = li["description"][:150]
-        table_data.append([
-            Paragraph(str(li["sr_no"]), cell_center),
-            Paragraph(desc, cell_style),
-            Paragraph(li["unit"], cell_center),
-            Paragraph(f"{li['po_qty']:,.3f}", cell_right),
-            Paragraph(f"{li['rate']:,.2f}", cell_right),
-            Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
-            Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
-            Paragraph(f"{li['qty_this']:,.3f}", cell_right),
-            Paragraph(f"{li['amount_this']:,.2f}", cell_right),
-            Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
-            Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
-            Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
-            Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
-        ])
+        key = li["sr_no"]
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(li)
+
+    for sr_no in group_order:
+        items = groups[sr_no]
+        desc = items[0]["description"][:150]
+
+        if len(items) > 1:
+            # Multi-stage grouped item — description header spans the row, then stage sub-rows
+            table_data.append([
+                Paragraph(f"<b>{sr_no}</b>", cell_style),
+                Paragraph(f"<b>{desc}</b>", cell_style),
+                "", "", "", "", "", "", "", "", "", "", "",
+            ])
+            header_row_indices.append(row_idx)
+            row_idx += 1
+            for li in items:
+                stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                table_data.append([
+                    Paragraph("", cell_center),
+                    Paragraph(f"&nbsp;&nbsp;&nbsp;• {stage_label}", cell_style),
+                    Paragraph(li["unit"], cell_center),
+                    Paragraph(f"{li['po_qty']:,.3f}", cell_right),
+                    Paragraph(f"{li['rate']:,.2f}", cell_right),
+                    Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
+                    Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
+                    Paragraph(f"{li['qty_this']:,.3f}", cell_right),
+                    Paragraph(f"{li['amount_this']:,.2f}", cell_right),
+                    Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
+                    Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
+                    Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
+                    Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
+                ])
+                row_idx += 1
+        else:
+            # Single-stage item (old-style manual entry) — unchanged flat row
+            li = items[0]
+            table_data.append([
+                Paragraph(str(li["sr_no"]), cell_center),
+                Paragraph(desc, cell_style),
+                Paragraph(li["unit"], cell_center),
+                Paragraph(f"{li['po_qty']:,.3f}", cell_right),
+                Paragraph(f"{li['rate']:,.2f}", cell_right),
+                Paragraph(f"{li['qty_prev']:,.3f}", cell_right),
+                Paragraph(f"{li['amount_prev']:,.2f}", cell_right),
+                Paragraph(f"{li['qty_this']:,.3f}", cell_right),
+                Paragraph(f"{li['amount_this']:,.2f}", cell_right),
+                Paragraph(f"{li['qty_upto']:,.3f}", cell_right),
+                Paragraph(f"{li['amount_upto']:,.2f}", cell_right),
+                Paragraph(f"{li['qty_balance']:,.3f}", cell_right),
+                Paragraph(f"{li['amount_balance']:,.2f}", cell_right),
+            ])
+            row_idx += 1
 
     col_widths = [10*mm, 55*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]
-    items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    items_table.setStyle(TableStyle([
+    table_style_cmds = [
         ("BACKGROUND", (0,0), (-1,0), GREEN_FILL),
         ("GRID", (0,0), (-1,-1), 0.5, BORDER),
         ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
@@ -300,7 +388,13 @@ def generate_ra_pdf(ra, project, line_items):
         ("BOTTOMPADDING", (0,0), (-1,-1), 3),
         ("LEFTPADDING", (0,0), (-1,-1), 3),
         ("RIGHTPADDING", (0,0), (-1,-1), 3),
-    ]))
+    ]
+    for hr in header_row_indices:
+        table_style_cmds.append(("SPAN", (1, hr), (12, hr)))
+        table_style_cmds.append(("BACKGROUND", (0, hr), (-1, hr), GRAY_FILL))
+
+    items_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    items_table.setStyle(TableStyle(table_style_cmds))
     elements.append(items_table)
     elements.append(Spacer(1, 10))
 
