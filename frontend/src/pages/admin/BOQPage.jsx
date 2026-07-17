@@ -8,6 +8,10 @@ const BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_
 const SPLIT_BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', total_rate:'', site_zone:'MPS SITE', hsn_code:'' }
 const ZONES = ['MPS SITE','STP SITE','SPS SITE','GENERAL']
 const TYPES = ['supply','erection','commissioning']
+// Display labels only — underlying value stays 'erection' everywhere
+// (Dispatch, Site Progress, RA Bill, Reconciliation all key off this string)
+const TYPE_LABELS = { supply: 'Supply', erection: 'Installation', commissioning: 'Commissioning' }
+const typeLabel = t => TYPE_LABELS[t] || t
 
 // Inline edit form rendered inside the table row
 function InlineEditForm({ item, onSave, onCancel }) {
@@ -92,7 +96,7 @@ function InlineEditForm({ item, onSave, onCancel }) {
               <label className="form-label">Item Type</label>
               <select className="form-select" value={form.item_type}
                 onChange={e => set('item_type', e.target.value)}>
-                {TYPES.map(t => <option key={t}>{t}</option>)}
+                {TYPES.map(t => <option key={t} value={t}>{typeLabel(t)}</option>)}
               </select>
             </div>
           </div>
@@ -304,7 +308,7 @@ export function BOQPage() {
                       <td style={{ fontWeight:500 }}>{r.sr_no}</td>
                       <td style={{ maxWidth:220, fontSize:12 }}>{r.description.substring(0,80)}</td>
                       <td style={{ fontSize:11 }}>{r.site_zone}</td>
-                      <td><span className={`badge ${r.item_type==='supply'?'badge-teal':r.item_type==='erection'?'badge-coral':'badge-amber'}`}>{r.item_type}</span></td>
+                      <td><span className={`badge ${r.item_type==='supply'?'badge-teal':r.item_type==='erection'?'badge-coral':'badge-amber'}`}>{typeLabel(r.item_type)}</span></td>
                       <td>{r.po_qty}</td><td>{r.unit}</td>
                       <td>{Number(r.rate).toLocaleString('en-IN')}</td>
                       <td>₹{Number(r.amount).toLocaleString('en-IN')}</td>
@@ -405,7 +409,7 @@ export function BOQPage() {
                       )}
                       {installPct > 0 && (
                         <tr>
-                          <td><span className="badge badge-coral">erection</span></td>
+                          <td><span className="badge badge-coral">Installation</span></td>
                           <td>{splitForm.sr_no || '—'}</td>
                           <td style={{ textAlign:'right' }}>₹{(totalRateNum * installPct/100).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
                         </tr>
@@ -479,7 +483,7 @@ export function BOQPage() {
                 <label className="form-label">Item Type</label>
                 <select className="form-select" value={form.item_type}
                   onChange={e => set('item_type', e.target.value)}>
-                  {TYPES.map(t => <option key={t}>{t}</option>)}
+                  {TYPES.map(t => <option key={t} value={t}>{typeLabel(t)}</option>)}
                 </select>
               </div>
               <div className="form-group" style={{ marginBottom:12 }}>
@@ -559,7 +563,7 @@ export function BOQPage() {
                     <td style={{ fontSize:11 }}>{i.site_zone}</td>
                     <td>
                       <span className={`badge ${i.item_type==='supply'?'badge-teal':i.item_type==='erection'?'badge-coral':'badge-amber'}`}>
-                        {i.item_type}
+                        {typeLabel(i.item_type)}
                       </span>
                     </td>
                     <td style={{fontSize:11}}>{i.hsn_code||'—'}</td>

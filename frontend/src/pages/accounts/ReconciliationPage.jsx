@@ -188,7 +188,7 @@ export default function ReconciliationPage() {
               value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
               <option value="all">All types</option>
               <option value="supply">Supply</option>
-              <option value="erection">Erection</option>
+              <option value="erection">Installation</option>
               <option value="commissioning">Commissioning</option>
             </select>
             <select className="form-select" style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }}
@@ -244,7 +244,7 @@ export default function ReconciliationPage() {
                     <span className={`badge ${
                       item.item_type === 'supply' ? 'badge-teal' :
                       item.item_type === 'erection' ? 'badge-coral' : 'badge-amber'
-                    }`}>{item.item_type}</span>
+                    }`}>{item.item_type === 'erection' ? 'installation' : item.item_type}</span>
                   </td>
                   <td style={{ textAlign: 'right', fontSize: 12 }}>{fmtQty(item.po_qty)} {item.unit}</td>
                   <td style={{ textAlign: 'right', fontSize: 12,

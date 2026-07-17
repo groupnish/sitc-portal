@@ -194,7 +194,7 @@ export default function InstallationPage() {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">BOQ items (supply/erection)</div>
+          <div className="stat-label">BOQ items (supply/installation)</div>
           <div className="stat-value">{items.length}</div>
           <div className="stat-sub">across all zones</div>
         </div>
