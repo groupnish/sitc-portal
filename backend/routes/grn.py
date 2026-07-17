@@ -111,16 +111,24 @@ def add_split_boq_item(pid):
     hsn_code     = data.get("hsn_code", "")
     site_zone    = data.get("site_zone", "GENERAL")
 
+    advance_pct = float(project.pt_advance_pct or 0)
     supply_pct  = float(project.pt_lc_pct or 0)
     install_pct = float(project.pt_installation_pct or 0)
     comm_pct    = float(project.pt_commissioning_pct or 0)
 
-    pct_sum = supply_pct + install_pct + comm_pct
-    if pct_sum <= 0:
+    pct_sum = advance_pct + supply_pct + install_pct + comm_pct
+    if (supply_pct + install_pct + comm_pct) <= 0:
         return jsonify({
             "error": "Project's Supply %, Installation %, Commissioning % are not set "
                      "(sum is 0). Set them in Admin -> Projects -> Payment tab first."
         }), 400
+
+    # advance_rate is stored ONLY on the Supply row — it represents the
+    # per-unit Advance-stage portion of this item's total value, combined
+    # with Supply when billed in the RA bill (once Advance Received is
+    # recorded on the RA Bill page), and used to compute that item's own
+    # advance recovery.
+    advance_rate_per_unit = round(total_rate * advance_pct / 100, 2) if advance_pct > 0 else 0
 
     stages = [
         ("supply",        supply_pct,  ""),
@@ -147,6 +155,7 @@ def add_split_boq_item(pid):
             site_zone=site_zone,
             item_type=item_type,
             hsn_code=hsn_code,
+            advance_rate=advance_rate_per_unit if item_type == "supply" else 0,
             sort_order=max_sort + i + 1,
         )
         db.session.add(item)
@@ -156,7 +165,7 @@ def add_split_boq_item(pid):
 
     return jsonify({
         "message": f"Created {len(created)} stage row(s) for item {sr_no}",
-        "split_pct_used": {"supply": supply_pct, "installation": install_pct, "commissioning": comm_pct},
+        "split_pct_used": {"advance": advance_pct, "supply": supply_pct, "installation": install_pct, "commissioning": comm_pct},
         "items": [i.to_dict() for i in created],
     }), 201
 

@@ -5,7 +5,7 @@ The "current" entries are those added AFTER the last RA bill was saved.
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models.models import (Project, BOQItem, User, RABill, RABillLine,
-                            SiteProgress, DispatchNote, ReconciliationItem,
+                            SiteProgress, DispatchNote, ReconciliationItem, AdvanceReceipt,
                             POInvoice, POInvoiceItem, db)
 from services.notifications import notify_ra_generated
 from services.export import (generate_ra_excel, generate_ra_pdf,
@@ -48,16 +48,26 @@ def compute_ra(pid):
     boq_items = BOQItem.query.filter_by(project_id=pid, is_active=True)\
                               .order_by(BOQItem.sort_order).all()
 
+    # Advance gate — recovery only activates once Accounts has recorded the
+    # one-time actual Advance Received entry. Kept purely as a record/audit
+    # trail (not a capped pool) — recovery itself is computed per item below.
+    advance_receipt = AdvanceReceipt.query.filter_by(project_id=pid).first()
+    advance_gate_active = advance_receipt is not None
+
     lines = []
+    # 3 separate stage buckets — Supply / Installation / Commissioning
     supply_prev = Decimal("0"); supply_this = Decimal("0")
-    ec_prev     = Decimal("0"); ec_this     = Decimal("0")
+    installation_prev = Decimal("0"); installation_this = Decimal("0")
+    commissioning_prev = Decimal("0"); commissioning_this = Decimal("0")
+    adv_rec = Decimal("0")  # total advance recovery for this bill, summed per item below
 
     for item in boq_items:
         rate = Decimal(str(item.rate))
         po_qty = Decimal(str(item.po_qty))
+        item_advance_rate = Decimal(str(item.advance_rate or 0))
 
         if item.item_type == "supply":
-            # Part 1: supply billing is driven by DISPATCHED quantity, not site progress
+            # Supply billing is driven by DISPATCHED quantity, not site progress
             all_dispatch = DispatchNote.query.filter_by(
                 project_id=pid, boq_item_id=item.id
             ).all()
@@ -74,11 +84,9 @@ def compute_ra(pid):
             qty_balance    = max(po_qty - qty_upto, Decimal("0"))
 
         elif item.item_type == "erection":
-            # All progress entries for this item
             all_entries = SiteProgress.query.filter_by(
                 project_id=pid, boq_item_id=item.id
             ).all()
-            # Previous: entries up to last RA bill date
             if prev_ra_date:
                 prev_entries = [e for e in all_entries if e.updated_at <= prev_ra_date]
                 curr_entries = [e for e in all_entries if e.updated_at > prev_ra_date]
@@ -107,15 +115,34 @@ def compute_ra(pid):
             qty_upto       = qty_prev_total + qty_curr
             qty_balance    = max(po_qty - qty_upto, Decimal("0"))
 
+        # ── Advance+Supply combined billing (Supply items only) ──────────
+        # Once the advance gate is active and this item has an advance_rate
+        # (set at "Add Split Item" creation time from the project's Advance %),
+        # THIS BILL's amount embeds the Advance portion for whatever qty is
+        # newly dispatched this period, and that same portion is immediately
+        # recovered as a deduction on this bill. Previously-billed ("prev")
+        # amounts are NOT retroactively changed — the adjustment only applies
+        # to what's being invoiced right now, matching how the invoice is
+        # actually raised.
+        item_adv_recovery = Decimal("0")
+        if item.item_type == "supply" and advance_gate_active and item_advance_rate > 0:
+            combined_rate = rate + item_advance_rate
+            amt_this = qty_curr * combined_rate
+            item_adv_recovery = (qty_curr * item_advance_rate).quantize(Decimal("0.01"))
+        else:
+            amt_this = qty_curr * rate
+
         amt_prev    = qty_prev_total * rate
-        amt_this    = qty_curr       * rate
-        amt_upto    = qty_upto       * rate
-        amt_balance = qty_balance    * rate
+        amt_upto    = amt_prev + amt_this
+        amt_balance = qty_balance * rate
 
         if item.item_type == "supply":
             supply_prev += amt_prev; supply_this += amt_this
+            adv_rec += item_adv_recovery
+        elif item.item_type == "erection":
+            installation_prev += amt_prev; installation_this += amt_this
         else:
-            ec_prev += amt_prev; ec_this += amt_this
+            commissioning_prev += amt_prev; commissioning_this += amt_this
 
         lines.append({
             "boq_item_id":   item.id,
@@ -133,14 +160,19 @@ def compute_ra(pid):
             "amount_upto":   float(amt_upto),
             "amount_balance":float(amt_balance),
             "item_type":     item.item_type,
+            "advance_recovery_this_item": float(item_adv_recovery),
         })
+
+    # ec_* kept as derived sum for Tax Invoice / Reconciliation compatibility
+    ec_prev = installation_prev + commissioning_prev
+    ec_this = installation_this + commissioning_this
 
     taxable   = supply_this + ec_this
     igst      = (taxable * Decimal(str(project.igst_rate)) / 100).quantize(Decimal("0.01"))
     cgst      = (taxable * Decimal(str(project.cgst_rate)) / 100).quantize(Decimal("0.01"))
     sgst      = (taxable * Decimal(str(project.sgst_rate)) / 100).quantize(Decimal("0.01"))
     gross     = taxable + igst + cgst + sgst
-    adv_rec   = (supply_this * Decimal(str(project.pt_advance_pct)) / 100).quantize(Decimal("0.01"))
+
     retention = (taxable * Decimal(str(project.pt_retention_pct)) / 100).quantize(Decimal("0.01"))
     net       = gross - adv_rec - retention
 
@@ -153,6 +185,12 @@ def compute_ra(pid):
         "supply_value_prev":  float(supply_prev),
         "supply_value_this":  float(supply_this),
         "supply_value_upto":  float(supply_prev + supply_this),
+        "installation_value_prev": float(installation_prev),
+        "installation_value_this": float(installation_this),
+        "installation_value_upto": float(installation_prev + installation_this),
+        "commissioning_value_prev": float(commissioning_prev),
+        "commissioning_value_this": float(commissioning_this),
+        "commissioning_value_upto": float(commissioning_prev + commissioning_this),
         "ec_value_prev":      float(ec_prev),
         "ec_value_this":      float(ec_this),
         "ec_value_upto":      float(ec_prev + ec_this),
@@ -166,6 +204,11 @@ def compute_ra(pid):
         "net_payable":        float(net),
         "lines":              lines,
         "period_note": f"Current period: {'start' if not prev_ra_date else prev_ra_date.strftime('%d-%b-%Y')} to {invoice_date.strftime('%d-%b-%Y')}",
+        "advance_info": {
+            "recorded": advance_gate_active,
+            "total_received": float(advance_receipt.amount_received) if advance_receipt else 0,
+            "recovering_this_bill": float(adv_rec),
+        },
     })
 
 
@@ -184,6 +227,12 @@ def save_ra(pid):
         supply_value_prev=data.get("supply_value_prev", 0),
         supply_value_this=data["supply_value_this"],
         supply_value_upto=data.get("supply_value_upto", 0),
+        installation_value_prev=data.get("installation_value_prev", 0),
+        installation_value_this=data.get("installation_value_this", 0),
+        installation_value_upto=data.get("installation_value_upto", 0),
+        commissioning_value_prev=data.get("commissioning_value_prev", 0),
+        commissioning_value_this=data.get("commissioning_value_this", 0),
+        commissioning_value_upto=data.get("commissioning_value_upto", 0),
         ec_value_prev=data.get("ec_value_prev", 0),
         ec_value_this=data["ec_value_this"],
         ec_value_upto=data.get("ec_value_upto", 0),
@@ -438,6 +487,73 @@ def delete_po_invoice(inv_id):
     db.session.delete(inv)
     db.session.commit()
     return jsonify({"message": "PO Invoice deleted"}), 200
+
+
+@ra_bp.route("/advance/<int:pid>", methods=["GET"])
+@jwt_required()
+def get_advance_receipt(pid):
+    """Fetch the one-time advance receipt for a project, if recorded."""
+    receipt = AdvanceReceipt.query.filter_by(project_id=pid).first()
+    if not receipt:
+        return jsonify(None)
+    already_recovered = db.session.query(
+        db.func.coalesce(db.func.sum(RABill.advance_recovery), 0)
+    ).filter_by(project_id=pid).scalar()
+    d = receipt.to_dict()
+    d["recovered_so_far"] = float(already_recovered)
+    d["remaining"] = float(Decimal(str(receipt.amount_received)) - Decimal(str(already_recovered)))
+    return jsonify(d)
+
+
+@ra_bp.route("/advance/<int:pid>", methods=["POST"])
+@jwt_required()
+def record_advance_receipt(pid):
+    """One-time entry — Accounts records the actual advance received from
+    the client. Blocked if already recorded (use PUT to correct)."""
+    user = current_user()
+    if user.role not in ("admin", "accounts"):
+        return jsonify({"error": "Access denied"}), 403
+
+    existing = AdvanceReceipt.query.filter_by(project_id=pid).first()
+    if existing:
+        return jsonify({"error": "Advance already recorded for this project. "
+                                  "Contact admin to correct the existing entry."}), 400
+
+    data = request.get_json()
+    if not data.get("amount_received") or float(data["amount_received"]) <= 0:
+        return jsonify({"error": "Enter a valid amount received"}), 400
+    if not data.get("date_received"):
+        return jsonify({"error": "Date received is required"}), 400
+
+    receipt = AdvanceReceipt(
+        project_id=pid,
+        amount_received=data["amount_received"],
+        date_received=date.fromisoformat(data["date_received"]),
+        reference_no=data.get("reference_no", ""),
+        notes=data.get("notes", ""),
+        recorded_by=user.id,
+    )
+    db.session.add(receipt)
+    db.session.commit()
+    return jsonify(receipt.to_dict()), 201
+
+
+@ra_bp.route("/advance/<int:rid>", methods=["PUT"])
+@jwt_required()
+def update_advance_receipt(rid):
+    """Admin-only correction of a previously recorded advance receipt."""
+    err = admin_required()
+    if err: return err
+    receipt = AdvanceReceipt.query.get_or_404(rid)
+    data = request.get_json()
+    if "amount_received" in data: receipt.amount_received = data["amount_received"]
+    if "date_received" in data and data["date_received"]:
+        receipt.date_received = date.fromisoformat(data["date_received"])
+    if "reference_no" in data: receipt.reference_no = data["reference_no"]
+    if "notes" in data: receipt.notes = data["notes"]
+    db.session.commit()
+    return jsonify(receipt.to_dict())
+
 
 @ra_bp.route("/<int:rid>/status", methods=["PUT"])
 @jwt_required()

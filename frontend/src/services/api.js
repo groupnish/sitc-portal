@@ -93,6 +93,9 @@ export const ra = {
   listPOInvoices:      pid => api.get(`/ra/po-invoice/${pid}`),
   poInvoicePdfUrl:     id => `${API_URL}/ra/po-invoice/${id}/pdf`,
   deletePOInvoice:     id => api.delete(`/ra/po-invoice/${id}/delete`),
+  getAdvance:          pid => api.get(`/ra/advance/${pid}`),
+  recordAdvance:       (pid,d) => api.post(`/ra/advance/${pid}`, d),
+  updateAdvance:       (id,d) => api.put(`/ra/advance/${id}`, d),
 }
 export const users = {
   list:       () => api.get('/users/'),

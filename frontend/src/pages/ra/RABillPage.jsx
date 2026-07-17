@@ -17,12 +17,38 @@ export default function RABillPage() {
   const [saving, setSaving]     = useState(false)
   const [invoiceNo, setInvoiceNo] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(today())
+  const [advance, setAdvance] = useState(null)       // null = loading, false = not recorded, object = recorded
+  const [showAdvanceForm, setShowAdvanceForm] = useState(false)
+  const [advanceForm, setAdvanceForm] = useState({ amount_received:'', date_received: today(), reference_no:'', notes:'' })
+  const [advanceSaving, setAdvanceSaving] = useState(false)
 
   useEffect(() => {
     if (!activeProject) return
     loadRA()
+    loadAdvance()
     users.waContacts().then(r=>setContacts(r.data)).catch(()=>{})
   }, [activeProject])
+
+  const loadAdvance = () => {
+    ra.getAdvance(activeProject.id)
+      .then(r => setAdvance(r.data || false))
+      .catch(() => setAdvance(false))
+  }
+
+  const submitAdvance = async e => {
+    e.preventDefault()
+    setAdvanceSaving(true)
+    try {
+      await ra.recordAdvance(activeProject.id, {
+        ...advanceForm,
+        amount_received: parseFloat(advanceForm.amount_received),
+      })
+      toast.success('Advance received recorded')
+      setShowAdvanceForm(false)
+      loadAdvance()
+    } catch(e) { toast.error(e.response?.data?.error || 'Error recording advance') }
+    finally { setAdvanceSaving(false) }
+  }
 
   const loadRA = () => ra.list(activeProject.id).then(r=>setRaList(r.data))
 
@@ -112,6 +138,65 @@ export default function RABillPage() {
               <input className="form-input" type="text" value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder={`${activeProject.invoice_prefix}/001`} />
             </div>
           </div>
+          {/* ── Advance Received card — one-time entry ────────────────────────── */}
+          {advance === false && !showAdvanceForm && (
+            <div className="alert alert-warning" style={{ marginBottom: 16, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
+              <span>No advance received recorded for this project yet — RA bills won't deduct any advance recovery until this is entered.</span>
+              <button className="btn btn-sm btn-primary" onClick={() => setShowAdvanceForm(true)}>
+                Record Advance Received
+              </button>
+            </div>
+          )}
+
+          {showAdvanceForm && (
+            <div className="card" style={{ marginBottom: 16, border: '2px solid var(--teal)' }}>
+              <div className="card-header"><span className="card-title">Record Advance Received (one-time entry)</span></div>
+              <div className="card-body">
+                <form onSubmit={submitAdvance}>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">Amount received (₹) *</label>
+                      <input className="form-input" type="number" step="any" required
+                        value={advanceForm.amount_received}
+                        onChange={e => setAdvanceForm(f => ({ ...f, amount_received: e.target.value }))} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Date received *</label>
+                      <input className="form-input" type="date" required
+                        value={advanceForm.date_received}
+                        onChange={e => setAdvanceForm(f => ({ ...f, date_received: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">Reference no. (bank UTR / cheque no.)</label>
+                    <input className="form-input" value={advanceForm.reference_no}
+                      onChange={e => setAdvanceForm(f => ({ ...f, reference_no: e.target.value }))} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">Notes</label>
+                    <input className="form-input" value={advanceForm.notes}
+                      onChange={e => setAdvanceForm(f => ({ ...f, notes: e.target.value }))} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary" type="submit" disabled={advanceSaving}>
+                      {advanceSaving ? 'Saving…' : 'Save advance received'}
+                    </button>
+                    <button className="btn btn-sm" type="button" onClick={() => setShowAdvanceForm(false)}>Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {advance && (
+            <div className="alert alert-success" style={{ marginBottom: 16, fontSize: 12 }}>
+              <b>Advance received:</b> ₹{Number(advance.amount_received).toLocaleString('en-IN')} on {advance.date_received}
+              {advance.reference_no ? ` · Ref: ${advance.reference_no}` : ''}
+              {' — '}<b>Recovered so far:</b> ₹{Number(advance.recovered_so_far).toLocaleString('en-IN')}
+              {' · '}<b>Remaining:</b> ₹{Number(advance.remaining).toLocaleString('en-IN')}
+            </div>
+          )}
+
           <div style={{display:'flex',gap:8,marginBottom:16}}>
             <button className="btn btn-primary" onClick={compute} disabled={loading}>
               {loading?'Computing…':'Compute RA bill'}
@@ -137,16 +222,23 @@ export default function RABillPage() {
                 </div>
                 <div style={{padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
-                    <span style={{textAlign:'left'}}>Supply (Part 1)</span>
+                    <span style={{textAlign:'left'}}>Supply</span>
                     <span style={{color:'var(--text-s)'}}>₹{Number(computed.supply_value_prev).toLocaleString('en-IN')}</span>
                     <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.supply_value_this).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
                 <div style={{padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
-                    <span style={{textAlign:'left'}}>E&C (Part 2)</span>
-                    <span style={{color:'var(--text-s)'}}>₹{Number(computed.ec_value_prev).toLocaleString('en-IN')}</span>
-                    <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.ec_value_this).toLocaleString('en-IN')}</span>
+                    <span style={{textAlign:'left'}}>Installation</span>
+                    <span style={{color:'var(--text-s)'}}>₹{Number(computed.installation_value_prev).toLocaleString('en-IN')}</span>
+                    <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.installation_value_this).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+                <div style={{padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,textAlign:'right'}}>
+                    <span style={{textAlign:'left'}}>Commissioning</span>
+                    <span style={{color:'var(--text-s)'}}>₹{Number(computed.commissioning_value_prev).toLocaleString('en-IN')}</span>
+                    <span style={{color:'var(--teal)',fontWeight:500}}>₹{Number(computed.commissioning_value_this).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
                 <div className="summary-row"><span style={{fontWeight:500}}>Taxable value (this bill)</span><span style={{fontWeight:500}}>{fmt(computed.taxable_value)}</span></div>
@@ -156,7 +248,18 @@ export default function RABillPage() {
                   <div className="summary-row"><span>SGST {activeProject.sgst_rate}%</span><span>{fmt(computed.sgst_amount)}</span></div>
                 </>}
                 <div className="summary-row"><span style={{fontWeight:500}}>Gross total</span><span style={{fontWeight:500}}>{fmt(computed.gross_total)}</span></div>
-                <div className="summary-row"><span>Less: Advance recovery ({activeProject.pt_advance_pct}%)</span><span style={{color:'var(--coral)'}}>— {fmt(computed.advance_recovery)}</span></div>
+                <div className="summary-row">
+                  <span>
+                    Less: Advance recovery ({activeProject.pt_advance_pct}%)
+                    {computed.advance_info && !computed.advance_info.recorded && (
+                      <span style={{fontSize:10,color:'var(--coral)',marginLeft:6}}>(no advance recorded — ₹0 deducted)</span>
+                    )}
+                    {computed.advance_info && computed.advance_info.recorded && computed.advance_info.remaining_before_this_bill <= 0 && (
+                      <span style={{fontSize:10,color:'var(--text-s)',marginLeft:6}}>(fully recovered)</span>
+                    )}
+                  </span>
+                  <span style={{color:'var(--coral)'}}>— {fmt(computed.advance_recovery)}</span>
+                </div>
                 {computed.retention_deduction > 0 && <div className="summary-row"><span>Less: Retention</span><span style={{color:'var(--coral)'}}>— {fmt(computed.retention_deduction)}</span></div>}
                 <div className="summary-row total"><span>Net payable</span><span style={{fontSize:16,fontWeight:700}}>{fmt(computed.net_payable)}</span></div>
               </div>

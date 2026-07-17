@@ -182,7 +182,8 @@ def generate_ra_excel(ra, project, line_items):
         r += 1
 
     summary_row("Supply value (this bill)", float(ra.supply_value_this))
-    summary_row("E&C value (this bill)", float(ra.ec_value_this))
+    summary_row("Installation value (this bill)", float(ra.installation_value_this or 0))
+    summary_row("Commissioning value (this bill)", float(ra.commissioning_value_this or 0))
     summary_row("Taxable value", float(ra.taxable_value), bold=True)
     if float(ra.igst_amount) > 0:
         summary_row(f"IGST @ {project.igst_rate}%", float(ra.igst_amount))
@@ -401,7 +402,8 @@ def generate_ra_pdf(ra, project, line_items):
     # Summary table
     summary_rows = [
         ["Supply value (this bill)", f"Rs. {float(ra.supply_value_this):,.2f}", False],
-        ["E&C value (this bill)", f"Rs. {float(ra.ec_value_this):,.2f}", False],
+        ["Installation value (this bill)", f"Rs. {float(ra.installation_value_this or 0):,.2f}", False],
+        ["Commissioning value (this bill)", f"Rs. {float(ra.commissioning_value_this or 0):,.2f}", False],
         ["Taxable value", f"Rs. {float(ra.taxable_value):,.2f}", True],
     ]
     if float(ra.igst_amount) > 0:

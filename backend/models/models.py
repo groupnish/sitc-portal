@@ -141,6 +141,11 @@ class BOQItem(db.Model):
     item_type   = db.Column(db.String(20), default="supply")
     # item_type: supply | erection | commissioning
     hsn_code    = db.Column(db.String(20))
+    # advance_rate: per-unit Advance-stage value for Supply items created via
+    # "Add Split Item" (= total item rate * Advance% / 100, fixed at creation
+    # time). Used to combine Advance+Supply into one RA bill line and to
+    # compute that item's own advance recovery — only Supply rows use this.
+    advance_rate = db.Column(db.Numeric(14, 2), default=0)
     milestone_type = db.Column(db.String(20), default="standard")
     sort_order  = db.Column(db.Integer, default=0)
     is_active   = db.Column(db.Boolean, default=True)
@@ -153,6 +158,7 @@ class BOQItem(db.Model):
             "rate": float(self.rate), "amount": float(self.amount),
             "site_zone": self.site_zone, "item_type": self.item_type,
             "hsn_code": self.hsn_code or "",
+            "advance_rate": float(self.advance_rate or 0),
             "milestone_type": self.milestone_type, "sort_order": self.sort_order,
         }
 
@@ -312,9 +318,17 @@ class RABill(db.Model):
     supply_value_this   = db.Column(db.Numeric(14, 2), default=0)
     supply_value_upto   = db.Column(db.Numeric(14, 2), default=0)
 
-    ec_value_prev       = db.Column(db.Numeric(14, 2), default=0)
+    ec_value_prev       = db.Column(db.Numeric(14, 2), default=0)  # derived: installation+commissioning (kept for Tax Invoice/Reconciliation compatibility)
     ec_value_this       = db.Column(db.Numeric(14, 2), default=0)
     ec_value_upto       = db.Column(db.Numeric(14, 2), default=0)
+
+    installation_value_prev   = db.Column(db.Numeric(14, 2), default=0)
+    installation_value_this   = db.Column(db.Numeric(14, 2), default=0)
+    installation_value_upto   = db.Column(db.Numeric(14, 2), default=0)
+
+    commissioning_value_prev  = db.Column(db.Numeric(14, 2), default=0)
+    commissioning_value_this  = db.Column(db.Numeric(14, 2), default=0)
+    commissioning_value_upto  = db.Column(db.Numeric(14, 2), default=0)
 
     taxable_value       = db.Column(db.Numeric(14, 2), default=0)
     igst_amount         = db.Column(db.Numeric(14, 2), default=0)
@@ -353,6 +367,12 @@ class RABill(db.Model):
             "ec_value_prev": float(self.ec_value_prev),
             "ec_value_this": float(self.ec_value_this),
             "ec_value_upto": float(self.ec_value_upto),
+            "installation_value_prev": float(self.installation_value_prev or 0),
+            "installation_value_this": float(self.installation_value_this or 0),
+            "installation_value_upto": float(self.installation_value_upto or 0),
+            "commissioning_value_prev": float(self.commissioning_value_prev or 0),
+            "commissioning_value_this": float(self.commissioning_value_this or 0),
+            "commissioning_value_upto": float(self.commissioning_value_upto or 0),
             "taxable_value": float(self.taxable_value),
             "igst_amount": float(self.igst_amount),
             "cgst_amount": float(self.cgst_amount),
@@ -474,6 +494,38 @@ class POInvoiceItem(db.Model):
             "qty": float(self.qty or 0),
             "rate": float(self.rate or 0),
             "amount": float(self.amount or 0),
+        }
+
+
+
+class AdvanceReceipt(db.Model):
+    """One-time record of actual advance payment received from client.
+    Entered once by Accounts on the RA Bill page (not at project setup,
+    since advance is rarely known/received at project creation time).
+    Used as a running-balance pool: each RA bill recovers against this
+    pool until it's fully exhausted, then recovery stops."""
+    __tablename__ = "advance_receipts"
+    id              = db.Column(db.Integer, primary_key=True)
+    project_id      = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False, unique=True)
+    amount_received = db.Column(db.Numeric(14, 2), nullable=False)
+    date_received   = db.Column(db.Date, nullable=False)
+    reference_no    = db.Column(db.String(100))
+    notes           = db.Column(db.Text)
+    recorded_by     = db.Column(db.Integer, db.ForeignKey("users.id"))
+    recorded_at     = db.Column(db.DateTime, default=datetime.utcnow)
+
+    project = db.relationship("Project", backref=db.backref("advance_receipt", uselist=False))
+    recorder = db.relationship("User", backref="advance_receipts_recorded")
+
+    def to_dict(self):
+        return {
+            "id": self.id, "project_id": self.project_id,
+            "amount_received": float(self.amount_received),
+            "date_received": self.date_received.isoformat() if self.date_received else None,
+            "reference_no": self.reference_no or "",
+            "notes": self.notes or "",
+            "recorded_by_name": self.recorder.name if self.recorder else "",
+            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
         }
 
 class ReconciliationItem(db.Model):
