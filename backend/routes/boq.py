@@ -190,8 +190,18 @@ def import_boq_excel(pid):
         unit = str(unit).strip() if unit else "Nos."
         site_zone = str(site_zone).strip() if site_zone else "GENERAL"
         item_type = str(item_type).strip().lower() if item_type else "supply"
-        if item_type not in ("supply", "erection", "commissioning"):
-            item_type = "supply"
+        # Accept both the internal value ("erection") and the display label
+        # ("installation") users may type in the Excel — UI shows "Installation"
+        # but the system stores "erection" internally everywhere.
+        item_type_aliases = {
+            "installation": "erection",
+            "install": "erection",
+            "erection": "erection",
+            "supply": "supply",
+            "commissioning": "commissioning",
+            "commission": "commissioning",
+        }
+        item_type = item_type_aliases.get(item_type, "supply")
 
         rows.append({
             "sr_no": sr_no,
@@ -318,7 +328,7 @@ def export_boq_excel(pid):
     HINTS = ["S-1, I-1A...", "Full item description", "Numeric (e.g. 4)",
               "Nos./Mtr/Set/Job", "Excl. GST", "Auto: Qty x Rate",
               "MPS SITE / STP SITE / SPS SITE / GENERAL",
-              "supply / erection / commissioning", "standard", "Optional notes"]
+              "supply / installation / commissioning", "standard", "Optional notes"]
     for i, h in enumerate(HINTS, 1):
         sc(4, i, h, fill=GRAY, align=L, size=8, color="5F5E5A")
     ws.row_dimensions[4].height = 22
