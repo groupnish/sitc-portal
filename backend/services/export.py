@@ -172,7 +172,7 @@ def generate_ra_excel(ra, project, line_items):
 
     for sr_no in group_order:
         items = groups[sr_no]
-        desc = items[0]["description"][:200]
+        desc = items[0]["description"]
 
         # Count how many stage sub-rows this group needs. A plain single
         # Supply item with an active Advance stage now ALSO expands into
@@ -184,8 +184,12 @@ def generate_ra_excel(ra, project, line_items):
 
         if stage_count > 1:
             # Header row — item no + description, spans across the qty/rate columns
+            # Sr. column shows the CUSTOMER's PO/WO BOQ Sr. No. when mapped,
+            # so the document matches the customer's own Work Order BOQ
+            # numbering — falls back to our internal Item No. otherwise.
+            display_sr = items[0].get("customer_sr_no") or sr_no
             ws.merge_cells(f"B{r}:M{r}")
-            cell(r, 1, sr_no, bold=True, fill=gray_fill, align=center)
+            cell(r, 1, display_sr, bold=True, fill=gray_fill, align=center)
             cell(r, 2, desc, bold=True, fill=gray_fill, align=left)
             r += 1
             for li in items:
@@ -218,8 +222,8 @@ def generate_ra_excel(ra, project, line_items):
                     )
         else:
             li = items[0]
-            cell(r, 1, li["sr_no"], align=center)
-            cell(r, 2, li["description"][:200], align=left)
+            cell(r, 1, li.get("customer_sr_no") or li["sr_no"], align=center)
+            cell(r, 2, li["description"], align=left)
             cell(r, 3, li["unit"], align=center)
             cell(r, 4, li["po_qty"], align=right, fmt="#,##0.000")
             cell(r, 5, li["rate"], align=right, fmt="#,##0.00")
@@ -436,7 +440,7 @@ def generate_ra_pdf(ra, project, line_items):
 
     for sr_no in group_order:
         items = groups[sr_no]
-        desc = items[0]["description"][:150]
+        desc = items[0]["description"]
 
         # Build the list of stage sub-rows this group needs. A plain single
         # Supply item with an active Advance stage now ALSO expands into
@@ -475,9 +479,13 @@ def generate_ra_pdf(ra, project, line_items):
         if len(sub_row_data) > 1:
             # Needs header + indented sub-row treatment (either a true split
             # item with multiple BOQ rows, or a plain item whose single stage
-            # expanded into Advance + Supply)
+            # expanded into Advance + Supply). Sr. column shows the
+            # CUSTOMER's PO/WO BOQ Sr. No. when mapped, so the document
+            # matches the customer's own Work Order BOQ numbering — falls
+            # back to our internal Item No. otherwise.
+            display_sr = items[0].get("customer_sr_no") or sr_no
             table_data.append([
-                Paragraph(f"<b>{sr_no}</b>", cell_style),
+                Paragraph(f"<b>{display_sr}</b>", cell_style),
                 Paragraph(f"<b>{desc}</b>", cell_style),
                 "", "", "", "", "", "", "", "", "", "", "",
             ])
@@ -490,7 +498,7 @@ def generate_ra_pdf(ra, project, line_items):
             # Single flat row — plain item, no stages to show
             li = items[0]
             table_data.append(flat_row(
-                li["sr_no"], desc, li["unit"], li["po_qty"], li["rate"],
+                li.get("customer_sr_no") or li["sr_no"], desc, li["unit"], li["po_qty"], li["rate"],
                 li["qty_prev"], li["amount_prev"],
                 li["qty_this"], li["amount_this"],
                 li["qty_upto"], li["amount_upto"],

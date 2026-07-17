@@ -4,8 +4,8 @@ import { boq } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import toast from 'react-hot-toast'
 
-const BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_zone:'MPS SITE', item_type:'supply', hsn_code:'' }
-const SPLIT_BLANK = { sr_no:'', description:'', po_qty:'', unit:'Nos.', total_rate:'', site_zone:'MPS SITE', hsn_code:'' }
+const BLANK = { sr_no:'', customer_sr_no:'', description:'', po_qty:'', unit:'Nos.', rate:'', site_zone:'MPS SITE', item_type:'supply', hsn_code:'' }
+const SPLIT_BLANK = { sr_no:'', customer_sr_no:'', description:'', po_qty:'', unit:'Nos.', total_rate:'', site_zone:'MPS SITE', hsn_code:'' }
 const ZONES = ['MPS SITE','STP SITE','SPS SITE','GENERAL']
 const TYPES = ['supply','erection','commissioning']
 // Display labels only — underlying value stays 'erection' everywhere
@@ -17,6 +17,7 @@ const typeLabel = t => TYPE_LABELS[t] || t
 function InlineEditForm({ item, onSave, onCancel }) {
   const [form, setForm] = useState({
     sr_no:      item.sr_no,
+    customer_sr_no: item.customer_sr_no || '',
     description:item.description,
     po_qty:     item.po_qty,
     unit:       item.unit,
@@ -68,6 +69,11 @@ function InlineEditForm({ item, onSave, onCancel }) {
               <input className="form-input" value={form.unit}
                 onChange={e => set('unit', e.target.value)} />
             </div>
+          </div>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label className="form-label">Customer PO Sr. No. <span style={{fontWeight:400, color:'var(--text-s)'}}>(shown on RA Bill only — internal Item No. above stays unchanged everywhere else)</span></label>
+            <input className="form-input" value={form.customer_sr_no}
+              onChange={e => set('customer_sr_no', e.target.value)} placeholder="e.g. matches customer's WO BOQ line no." />
           </div>
           <div className="form-group" style={{ marginBottom: 10 }}>
             <label className="form-label">Description *</label>
@@ -300,12 +306,13 @@ export function BOQPage() {
             <div className="table-wrap" style={{ maxHeight:280, overflowY:'auto' }}>
               <table>
                 <thead>
-                  <tr><th>Item No.</th><th>Description</th><th>Zone</th><th>Type</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
+                  <tr><th>Item No.</th><th>Customer PO Sr. No.</th><th>Description</th><th>Zone</th><th>Type</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th></tr>
                 </thead>
                 <tbody>
                   {importPreview.rows.map((r,i) => (
                     <tr key={i} style={importPreview.duplicates_in_db?.includes(r.sr_no) ? { opacity:0.4 } : {}}>
                       <td style={{ fontWeight:500 }}>{r.sr_no}</td>
+                      <td style={{ fontSize:11 }}>{r.customer_sr_no || '—'}</td>
                       <td style={{ maxWidth:220, fontSize:12 }}>{r.description.substring(0,80)}</td>
                       <td style={{ fontSize:11 }}>{r.site_zone}</td>
                       <td><span className={`badge ${r.item_type==='supply'?'badge-teal':r.item_type==='erection'?'badge-coral':'badge-amber'}`}>{typeLabel(r.item_type)}</span></td>
@@ -359,6 +366,11 @@ export function BOQPage() {
                   <input className="form-input" required value={splitForm.unit}
                     onChange={e => setSplit('unit', e.target.value)} />
                 </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">Customer PO Sr. No. <span style={{fontWeight:400, color:'var(--text-s)'}}>(optional — shown on RA Bill only, our Item No. above still drives everything else)</span></label>
+                <input className="form-input" value={splitForm.customer_sr_no}
+                  onChange={e => setSplit('customer_sr_no', e.target.value)} placeholder="e.g. matches customer's WO BOQ line no." />
               </div>
               <div className="form-group" style={{ marginBottom:12 }}>
                 <label className="form-label">Description *</label>
@@ -454,6 +466,11 @@ export function BOQPage() {
                   <input className="form-input" required value={form.unit}
                     onChange={e => set('unit', e.target.value)} />
                 </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">Customer PO Sr. No. <span style={{fontWeight:400, color:'var(--text-s)'}}>(optional — shown on RA Bill only, our Item No. above still drives everything else)</span></label>
+                <input className="form-input" value={form.customer_sr_no}
+                  onChange={e => set('customer_sr_no', e.target.value)} placeholder="e.g. matches customer's WO BOQ line no." />
               </div>
               <div className="form-group" style={{ marginBottom:12 }}>
                 <label className="form-label">Description *</label>
@@ -558,7 +575,14 @@ export function BOQPage() {
                 <>
                   <tr key={i.id}
                     style={{ background: editingId === i.id ? 'var(--teal-l)' : '' }}>
-                    <td style={{ fontWeight:500 }}>{i.sr_no}</td>
+                    <td style={{ fontWeight:500 }}>
+                      {i.sr_no}
+                      {i.customer_sr_no && (
+                        <div style={{ fontWeight:400, fontSize:10, color:'var(--text-s)' }}>
+                          PO: {i.customer_sr_no}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ maxWidth:200, fontSize:12 }}>{i.description.substring(0,80)}</td>
                     <td style={{ fontSize:11 }}>{i.site_zone}</td>
                     <td>

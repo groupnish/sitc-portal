@@ -50,6 +50,9 @@ def run():
             "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_this NUMERIC(14,2) DEFAULT 0",
             "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_upto NUMERIC(14,2) DEFAULT 0",
             "ALTER TABLE ra_bill_lines ADD COLUMN IF NOT EXISTS supply_only_amount_balance NUMERIC(14,2) DEFAULT 0",
+            # BOQ Item — Customer PO/WO BOQ Sr. No. (separate from our internal
+            # sr_no — used only to relabel the RA Bill's Sr. column)
+            "ALTER TABLE boq_items ADD COLUMN IF NOT EXISTS customer_sr_no VARCHAR(20)",
         ]
         for sql in migrations:
             try:

@@ -132,6 +132,14 @@ class BOQItem(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     project_id  = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     sr_no       = db.Column(db.String(20), nullable=False)
+    # customer_sr_no: the customer's own PO/WO BOQ line Sr. No. — separate
+    # from sr_no (our internal Item No. used everywhere else in the system:
+    # GRN, Dispatch, Installation, Commissioning, BOQ Manager). Only used to
+    # relabel the "Sr." column in the RA Bill PDF/Excel so the document
+    # matches the customer's own Work Order BOQ numbering for the approving
+    # authority to sign off on. Falls back to sr_no when not set (e.g. items
+    # not yet mapped to a customer PO line).
+    customer_sr_no = db.Column(db.String(20))
     description = db.Column(db.Text, nullable=False)
     po_qty      = db.Column(db.Numeric(12, 3), nullable=False)
     unit        = db.Column(db.String(20), nullable=False)
@@ -154,6 +162,7 @@ class BOQItem(db.Model):
         return {
             "id": self.id, "project_id": self.project_id,
             "sr_no": self.sr_no, "description": self.description,
+            "customer_sr_no": self.customer_sr_no or "",
             "po_qty": float(self.po_qty), "unit": self.unit,
             "rate": float(self.rate), "amount": float(self.amount),
             "site_zone": self.site_zone, "item_type": self.item_type,

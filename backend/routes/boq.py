@@ -82,6 +82,98 @@ def add_boq_item(pid):
     db.session.add(item); db.session.commit()
     return jsonify(item.to_dict()), 201
 
+@boq_bp.route("/<int:pid>/add-split-item", methods=["POST"])
+@jwt_required()
+def add_split_boq_item(pid):
+    """
+    Add ONE BOQ item with a total value; auto-generate 3 stage rows
+    (Supply / Installation / Commissioning) with rates derived from the
+    project's Payment Terms percentages (Supply %, Installation %,
+    Commissioning % — set in Admin -> Projects -> Payment tab).
+    All 3 rows share the SAME Item No. (sr_no) so they track together
+    through Dispatch, Site Progress, RA Bill, and Reconciliation.
+    NOTE: restored here — this route previously only existed in the
+    now-unregistered boq_bp defined inside grn.py, so it was silently
+    unreachable (404) despite the frontend calling it.
+    """
+    err = admin_required()
+    if err: return err
+    project = Project.query.get_or_404(pid)
+    data = request.get_json()
+
+    required = ["sr_no", "description", "po_qty", "unit", "total_rate"]
+    missing = [f for f in required if not data.get(f) and data.get(f) != 0]
+    if missing:
+        return jsonify({"error": f"Missing required field(s): {', '.join(missing)}"}), 400
+
+    sr_no          = str(data["sr_no"]).strip()
+    description    = data["description"]
+    po_qty         = float(data["po_qty"])
+    unit           = data["unit"]
+    total_rate     = float(data["total_rate"])
+    hsn_code       = data.get("hsn_code", "")
+    site_zone      = data.get("site_zone", "GENERAL")
+    customer_sr_no = str(data.get("customer_sr_no", "")).strip()
+
+    advance_pct = float(project.pt_advance_pct or 0)
+    supply_pct  = float(project.pt_lc_pct or 0)
+    install_pct = float(project.pt_installation_pct or 0)
+    comm_pct    = float(project.pt_commissioning_pct or 0)
+
+    pct_sum = advance_pct + supply_pct + install_pct + comm_pct
+    if (supply_pct + install_pct + comm_pct) <= 0:
+        return jsonify({
+            "error": "Project's Supply %, Installation %, Commissioning % are not set "
+                     "(sum is 0). Set them in Admin -> Projects -> Payment tab first."
+        }), 400
+
+    # advance_rate is stored ONLY on the Supply row — it represents the
+    # per-unit Advance-stage portion of this item's total value, combined
+    # with Supply when billed in the RA bill (once Advance Received is
+    # recorded on the RA Bill page), and used to compute that item's own
+    # advance recovery.
+    advance_rate_per_unit = round(total_rate * advance_pct / 100, 2) if advance_pct > 0 else 0
+
+    stages = [
+        ("supply",        supply_pct,  ""),
+        ("erection",      install_pct, "A"),
+        ("commissioning", comm_pct,    "B"),
+    ]
+
+    created = []
+    max_sort = db.session.query(db.func.coalesce(db.func.max(BOQItem.sort_order), 0))\
+                          .filter_by(project_id=pid).scalar()
+
+    for i, (item_type, pct, suffix) in enumerate(stages):
+        if pct <= 0:
+            continue  # skip stages with 0% — e.g. pure-supply items with no install/commission
+        stage_rate = round(total_rate * pct / 100, 2)
+        item = BOQItem(
+            project_id=pid,
+            sr_no=sr_no,                    # SAME item number across all 3 stage rows
+            customer_sr_no=customer_sr_no,   # customer's own PO/WO BOQ Sr. No. — same across all stage rows too
+            description=description,
+            po_qty=po_qty,
+            unit=unit,
+            rate=stage_rate,
+            amount=round(stage_rate * po_qty, 2),
+            site_zone=site_zone,
+            item_type=item_type,
+            hsn_code=hsn_code,
+            advance_rate=advance_rate_per_unit if item_type == "supply" else 0,
+            sort_order=max_sort + i + 1,
+        )
+        db.session.add(item)
+        created.append(item)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Created {len(created)} stage row(s) for item {sr_no}",
+        "split_pct_used": {"advance": advance_pct, "supply": supply_pct, "installation": install_pct, "commissioning": comm_pct},
+        "items": [i.to_dict() for i in created],
+    }), 201
+
 @boq_bp.route("/<int:pid>/bulk", methods=["POST"])
 @jwt_required()
 def bulk_add_boq(pid):
@@ -133,6 +225,8 @@ def import_boq_excel(pid):
     # Expected columns (matches BOQ_Import_Template / BEIL_WO249_EC_BOQ_Import):
     # A: Sr.No  B: Description  C: PO Qty  D: Unit  E: Rate  F: Amount
     # G: Site Zone  H: Item Type  I: Milestone Type  J: Remarks
+    # K: Customer PO Sr. No. (optional — customer's own WO BOQ line number,
+    #    used only to relabel the RA Bill's Sr. column; leave blank if unknown)
     # Header is on row 3, hint row 4, data starts row 5
     HEADER_ROW = 3
     DATA_START_ROW = 5
@@ -159,6 +253,7 @@ def import_boq_excel(pid):
         rate = ws.cell(row=r, column=5).value
         site_zone = ws.cell(row=r, column=7).value
         item_type = ws.cell(row=r, column=8).value
+        customer_sr_no = ws.cell(row=r, column=11).value
 
         # Stop at blank row or TOTAL row
         if sr_no is None and description is None:
@@ -203,6 +298,8 @@ def import_boq_excel(pid):
         }
         item_type = item_type_aliases.get(item_type, "supply")
 
+        customer_sr_no = str(customer_sr_no).strip() if customer_sr_no else ""
+
         rows.append({
             "sr_no": sr_no,
             "description": description,
@@ -212,6 +309,7 @@ def import_boq_excel(pid):
             "amount": round(po_qty * rate, 2),
             "site_zone": site_zone,
             "item_type": item_type,
+            "customer_sr_no": customer_sr_no,
         })
 
     if not rows:
@@ -244,6 +342,7 @@ def import_boq_excel(pid):
             sr_no=r["sr_no"], description=r["description"],
             po_qty=r["po_qty"], unit=r["unit"], rate=r["rate"],
             amount=r["amount"], site_zone=r["site_zone"], item_type=r["item_type"],
+            customer_sr_no=r.get("customer_sr_no", ""),
         )
         db.session.add(item)
         created.append(item)
@@ -299,18 +398,18 @@ def export_boq_excel(pid):
         if fmt: cell.number_format = fmt
         return cell
 
-    col_widths = [12, 55, 10, 10, 14, 14, 18, 18, 18, 20]
+    col_widths = [12, 55, 10, 10, 14, 14, 18, 18, 18, 20, 18]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     # Row 1 — Title
-    ws.merge_cells("A1:J1")
+    ws.merge_cells("A1:K1")
     sc(1, 1, f"BOQ EXPORT — {project.code} — {project.name}",
        bold=True, fill=TEAL, align=C, size=13)
     ws.row_dimensions[1].height = 28
 
     # Row 2 — Sub-header
-    ws.merge_cells("A2:J2")
+    ws.merge_cells("A2:K2")
     sc(2, 1,
        "This file matches the Import template layout — edit and re-upload via "
        "Admin -> BOQ Manager -> Import Excel to update items in bulk.",
@@ -319,7 +418,8 @@ def export_boq_excel(pid):
 
     # Row 3 — Column headers (same order the import route reads)
     HEADERS = ["Sr. No. *", "Description *", "PO Qty *", "Unit *", "Rate (Rs.) *",
-               "Amount (Rs.)", "Site Zone", "Item Type *", "Milestone Type", "Remarks"]
+               "Amount (Rs.)", "Site Zone", "Item Type *", "Milestone Type", "Remarks",
+               "Customer PO Sr. No."]
     for i, h in enumerate(HEADERS, 1):
         sc(3, i, h, bold=True, fill=TEAL, align=C, size=10)
     ws.row_dimensions[3].height = 28
@@ -328,7 +428,8 @@ def export_boq_excel(pid):
     HINTS = ["S-1, I-1A...", "Full item description", "Numeric (e.g. 4)",
               "Nos./Mtr/Set/Job", "Excl. GST", "Auto: Qty x Rate",
               "MPS SITE / STP SITE / SPS SITE / GENERAL",
-              "supply / installation / commissioning", "standard", "Optional notes"]
+              "supply / installation / commissioning", "standard", "Optional notes",
+              "Customer's own WO BOQ Sr. No. — shown on RA Bill only"]
     for i, h in enumerate(HINTS, 1):
         sc(4, i, h, fill=GRAY, align=L, size=8, color="5F5E5A")
     ws.row_dimensions[4].height = 22
@@ -340,6 +441,7 @@ def export_boq_excel(pid):
             item.sr_no, item.description, float(item.po_qty), item.unit,
             float(item.rate), float(item.amount), item.site_zone or "GENERAL",
             item.item_type, item.milestone_type or "standard", "",
+            item.customer_sr_no or "",
         ]
         for i, v in enumerate(vals, 1):
             fmt = "#,##0.00" if i in (3, 5, 6) else None
@@ -357,7 +459,7 @@ def export_boq_excel(pid):
     ws.cell(row=r, column=6).fill = GREEN
     ws.cell(row=r, column=6).alignment = C
     ws.cell(row=r, column=6).border = bdr
-    for c in range(7, 11):
+    for c in range(7, 12):
         sc(r, c, "", fill=GRAY)
 
     ws.freeze_panes = "A5"

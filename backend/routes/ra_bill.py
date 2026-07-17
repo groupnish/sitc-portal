@@ -208,6 +208,7 @@ def compute_ra(pid):
         lines.append({
             "boq_item_id":   item.id,
             "sr_no":         item.sr_no,
+            "customer_sr_no": item.customer_sr_no or "",
             "description":   item.description,
             "unit":          item.unit,
             "rate":          float(rate),
