@@ -110,9 +110,24 @@ def import_boq_excel(pid):
 
     try:
         import openpyxl
+        # openpyxl only reads .xlsx — detect .xls and give a clear error
+        filename = file.filename.lower()
+        if filename.endswith('.xls') and not filename.endswith('.xlsx'):
+            return jsonify({
+                "error": "File is in old Excel 97-2003 (.xls) format. "
+                         "Please re-save as Excel Workbook (.xlsx) in Excel: "
+                         "File → Save As → Excel Workbook (.xlsx)"
+            }), 400
         wb = openpyxl.load_workbook(file, data_only=True)
         ws = wb.active
     except Exception as e:
+        err = str(e)
+        if "xlrd" in err or "xls" in err.lower() or "OLE" in err:
+            return jsonify({
+                "error": "File appears to be in old .xls format. "
+                         "Please re-save as Excel Workbook (.xlsx): "
+                         "File → Save As → Excel Workbook (.xlsx)"
+            }), 400
         return jsonify({"error": f"Could not read Excel file: {e}"}), 400
 
     # Expected columns (matches BOQ_Import_Template / BEIL_WO249_EC_BOQ_Import):
@@ -231,6 +246,121 @@ def import_boq_excel(pid):
         "skipped_sr_nos": skipped,
         "items": [i.to_dict() for i in created],
     }), 201
+
+
+@boq_bp.route("/<int:pid>/export-excel", methods=["GET"])
+@jwt_required()
+def export_boq_excel(pid):
+    """
+    Export the project's current BOQ to Excel, in the SAME layout as the
+    import template (title, hint row, headers on row 3, data from row 5).
+    The exported file can be re-uploaded via Import Excel without any
+    changes — enables a clean export -> edit -> re-import round trip.
+    """
+    from flask import send_file
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    project = Project.query.get_or_404(pid)
+    items = BOQItem.query.filter_by(project_id=pid, is_active=True)\
+                          .order_by(BOQItem.sort_order, BOQItem.sr_no).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "BOQ Export"
+
+    thin  = Side(style="thin")
+    bdr   = Border(left=thin, right=thin, top=thin, bottom=thin)
+    C     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    L     = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    TEAL  = PatternFill("solid", fgColor="1D9E75")
+    GRAY  = PatternFill("solid", fgColor="F1EFE8")
+    GREEN = PatternFill("solid", fgColor="E1F5EE")
+    AMBER = PatternFill("solid", fgColor="FFF8E1")
+
+    def sc(r, c, val="", bold=False, fill=None, align=L, size=10, color="000000", fmt=None):
+        cell = ws.cell(row=r, column=c, value=val)
+        cell.font = Font(bold=bold, size=size, name="Arial",
+                         color="FFFFFF" if fill == TEAL else color)
+        if fill: cell.fill = fill
+        cell.alignment = align
+        cell.border = bdr
+        if fmt: cell.number_format = fmt
+        return cell
+
+    col_widths = [12, 55, 10, 10, 14, 14, 18, 18, 18, 20]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # Row 1 — Title
+    ws.merge_cells("A1:J1")
+    sc(1, 1, f"BOQ EXPORT — {project.code} — {project.name}",
+       bold=True, fill=TEAL, align=C, size=13)
+    ws.row_dimensions[1].height = 28
+
+    # Row 2 — Sub-header
+    ws.merge_cells("A2:J2")
+    sc(2, 1,
+       "This file matches the Import template layout — edit and re-upload via "
+       "Admin -> BOQ Manager -> Import Excel to update items in bulk.",
+       fill=AMBER, align=L, size=9, color="854F0B")
+    ws.row_dimensions[2].height = 18
+
+    # Row 3 — Column headers (same order the import route reads)
+    HEADERS = ["Sr. No. *", "Description *", "PO Qty *", "Unit *", "Rate (Rs.) *",
+               "Amount (Rs.)", "Site Zone", "Item Type *", "Milestone Type", "Remarks"]
+    for i, h in enumerate(HEADERS, 1):
+        sc(3, i, h, bold=True, fill=TEAL, align=C, size=10)
+    ws.row_dimensions[3].height = 28
+
+    # Row 4 — Hints (kept identical to import template for consistency)
+    HINTS = ["S-1, I-1A...", "Full item description", "Numeric (e.g. 4)",
+              "Nos./Mtr/Set/Job", "Excl. GST", "Auto: Qty x Rate",
+              "MPS SITE / STP SITE / SPS SITE / GENERAL",
+              "supply / erection / commissioning", "standard", "Optional notes"]
+    for i, h in enumerate(HINTS, 1):
+        sc(4, i, h, fill=GRAY, align=L, size=8, color="5F5E5A")
+    ws.row_dimensions[4].height = 22
+
+    # Row 5+ — actual current BOQ data
+    r = 5
+    for item in items:
+        vals = [
+            item.sr_no, item.description, float(item.po_qty), item.unit,
+            float(item.rate), float(item.amount), item.site_zone or "GENERAL",
+            item.item_type, item.milestone_type or "standard", "",
+        ]
+        for i, v in enumerate(vals, 1):
+            fmt = "#,##0.00" if i in (3, 5, 6) else None
+            align = C if i not in (2,) else L
+            sc(r, i, v, fill=GREEN, align=align, fmt=fmt)
+        ws.row_dimensions[r].height = 20
+        r += 1
+
+    # Total row
+    ws.merge_cells(f"A{r}:E{r}")
+    sc(r, 1, f"TOTAL — {len(items)} item(s)", bold=True, fill=GRAY, align=C)
+    ws.cell(row=r, column=6).value = sum(float(i.amount) for i in items)
+    ws.cell(row=r, column=6).number_format = "#,##0.00"
+    ws.cell(row=r, column=6).font = Font(bold=True, size=10, name="Arial")
+    ws.cell(row=r, column=6).fill = GREEN
+    ws.cell(row=r, column=6).alignment = C
+    ws.cell(row=r, column=6).border = bdr
+    for c in range(7, 11):
+        sc(r, c, "", fill=GRAY)
+
+    ws.freeze_panes = "A5"
+
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    wb.save(tmp.name)
+    tmp.close()
+
+    return send_file(tmp.name, as_attachment=True,
+                     download_name=f"BOQ_Export_{project.code}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 @boq_bp.route("/item/<int:iid>", methods=["PUT"])
 @jwt_required()

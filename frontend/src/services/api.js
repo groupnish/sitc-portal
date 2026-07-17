@@ -56,6 +56,7 @@ export const boq = {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   },
+  exportExcelUrl: pid => `${API_URL}/boq/${pid}/export-excel`,
 }
 export const grn = {
   list:   pid => api.get(`/grn/${pid}`),

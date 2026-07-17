@@ -210,6 +210,19 @@ export function BOQPage() {
 
   const cancelImport = () => { setImportPreview(null); setPendingFile(null) }
 
+  const downloadBOQExcel = () => {
+    const url = boq.exportExcelUrl(activeProject.id)
+    const token = localStorage.getItem('access_token')
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => { if (!r.ok) throw new Error('Failed'); return r.blob() })
+      .then(blob => {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `BOQ_Export_${activeProject.code}.xlsx`
+        a.click()
+      }).catch(() => toast.error('Export failed'))
+  }
+
   // ── Filter + search ──────────────────────────────────────────────────────
   const filtered = items
     .filter(i => filter === 'all' || i.site_zone === filter)
@@ -236,6 +249,9 @@ export function BOQPage() {
             ref={fileInputRef} type="file" accept=".xlsx,.xls"
             style={{ display:'none' }} onChange={onFilePicked}
           />
+          <button className="btn btn-sm" onClick={downloadBOQExcel}>
+            ⬇ Export Excel
+          </button>
           {isAdmin && <>
             <button className="btn btn-sm" disabled={importing}
               onClick={() => fileInputRef.current?.click()}>
