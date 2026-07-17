@@ -54,16 +54,22 @@ def compute_ra(pid):
     advance_receipt = AdvanceReceipt.query.filter_by(project_id=pid).first()
     advance_gate_active = advance_receipt is not None
 
-    # Advance-to-Supply ratio, derived live from the project's CURRENT Payment
-    # Terms percentages. Applied to EVERY Supply item's existing rate — works
-    # regardless of how/when that item was created (Add Split Item, manual
-    # entry, or Excel import), and stays correct even if % is edited later.
-    # (item.rate represents the Supply% portion of that item's total value,
-    # so rate * (advance_pct / supply_pct) recovers the equivalent Advance
-    # portion at the same per-unit scale.)
+    # Advance / Supply stage rates, derived live from the project's CURRENT
+    # Payment Terms percentages. Two cases:
+    #  1. True split items (created via "Add Split Item") already store an
+    #     explicit BOQItem.advance_rate, and their own `rate` field is
+    #     ALREADY the Supply%-scaled portion of the item's total value (set
+    #     at creation time) — so Advance + Supply is meant to combine to the
+    #     item's Advance+Supply share only (Installation/Commissioning are
+    #     separate BOQ rows for those items). Kept exactly as before.
+    #  2. Plain items (manual entry / Excel import — the vast majority) have
+    #     no stored advance_rate, and their `rate` is the FULL 100% unit
+    #     value. For these, Advance and Supply rates must BOTH be derived as
+    #     a % of that full rate so they sum back to exactly `rate` — never
+    #     over-billing. This is the fix for the "Supply shows 100% instead
+    #     of 80%" issue.
     supply_pct_proj  = Decimal(str(project.pt_lc_pct or 0))
     advance_pct_proj = Decimal(str(project.pt_advance_pct or 0))
-    advance_to_supply_ratio = (advance_pct_proj / supply_pct_proj) if supply_pct_proj > 0 else Decimal("0")
 
     lines = []
     # 3 separate stage buckets — Supply / Installation / Commissioning
@@ -75,11 +81,25 @@ def compute_ra(pid):
     for item in boq_items:
         rate = Decimal(str(item.rate))
         po_qty = Decimal(str(item.po_qty))
-        # Prefer a per-item stored advance_rate if explicitly set (e.g. a
-        # future manual override); otherwise derive it live from this item's
-        # own Supply rate using the project's current Advance/Supply ratio.
+
+        # Determine whether the Advance/Supply split applies to this item,
+        # and what each stage's own rate is.
+        advance_applicable = False
+        item_advance_rate = Decimal("0")
+        item_supply_rate  = rate  # default: full rate, no split
+
         stored_advance_rate = Decimal(str(item.advance_rate or 0))
-        item_advance_rate = stored_advance_rate if stored_advance_rate > 0 else (rate * advance_to_supply_ratio).quantize(Decimal("0.01"))
+        if item.item_type == "supply" and advance_gate_active:
+            if stored_advance_rate > 0:
+                # Case 1 — true split item, rate already Supply%-scaled
+                item_advance_rate = stored_advance_rate
+                item_supply_rate  = rate
+                advance_applicable = True
+            elif supply_pct_proj > 0:
+                # Case 2 — plain item, rate is the full 100% value
+                item_advance_rate = (rate * advance_pct_proj / 100).quantize(Decimal("0.01"))
+                item_supply_rate  = (rate * supply_pct_proj  / 100).quantize(Decimal("0.01"))
+                advance_applicable = True
 
         if item.item_type == "supply":
             # Supply billing is driven by DISPATCHED quantity, not site progress
@@ -131,42 +151,51 @@ def compute_ra(pid):
             qty_balance    = max(po_qty - qty_upto, Decimal("0"))
 
         # ── Advance / Supply stage split (Supply items only) ─────────────
-        # Once the advance gate is active and this item has an advance_rate
-        # (set at "Add Split Item" creation time, or derived live above),
-        # THIS BILL's Advance portion is tracked as its OWN stage (own rate,
-        # own amount) rather than folded into the Supply amount — this is
-        # what lets the RA Bill document show "Advance" and "Supply" as
-        # separate sub-rows under the item, per Payment Terms. The Advance
-        # amount is billed for whatever qty is newly dispatched this period,
-        # and that same amount is immediately recovered as a deduction on
-        # this bill. Previously-billed ("prev") amounts are NOT retroactively
-        # changed — the adjustment only applies to what's being invoiced
-        # right now, matching how the invoice is actually raised, and matches
-        # the existing non-retroactive recovery rule.
-        advance_applicable = (item.item_type == "supply" and advance_gate_active
-                               and item_advance_rate > 0)
+        # THIS BILL's Advance and Supply portions are tracked as their own
+        # separate stages (own rate, own amount) — this is what lets the RA
+        # Bill document show "Advance" and "Supply" as separate sub-rows
+        # under the item, per Payment Terms. Amounts are billed for
+        # whatever qty is newly dispatched this period, and the Advance
+        # amount is immediately recovered as a deduction on this bill.
+        # Previously-billed ("prev") amounts are NOT retroactively changed —
+        # the adjustment only applies to what's being invoiced right now,
+        # matching how the invoice is actually raised, and matches the
+        # existing non-retroactive recovery rule.
 
-        # Supply-only amounts — pure rate, never includes Advance
-        amt_prev_supply    = qty_prev_total * rate
-        amt_this_supply    = qty_curr * rate
-        amt_upto_supply    = amt_prev_supply + amt_this_supply
-        amt_balance_supply = qty_balance * rate
+        # Supply-stage-only amounts, using item_supply_rate (may be scaled
+        # down from the full rate per Payment Terms % — see derivation above)
+        amt_prev_supply_stage    = qty_prev_total * item_supply_rate
+        amt_this_supply_stage    = qty_curr * item_supply_rate
+        amt_upto_supply_stage    = amt_prev_supply_stage + amt_this_supply_stage
+        amt_balance_supply_stage = qty_balance * item_supply_rate
 
-        # Advance-only amounts — 0 unless this item is under the active gate
-        item_adv_rate_used = item_advance_rate if advance_applicable else Decimal("0")
-        amt_this_adv    = (qty_curr * item_adv_rate_used).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
-        amt_prev_adv     = Decimal("0")  # non-retroactive — prev never carries Advance
-        amt_upto_adv     = amt_prev_adv + amt_this_adv
-        amt_balance_adv  = (qty_balance * item_adv_rate_used).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
+        # Advance-stage-only amounts — 0 unless this item is under the
+        # active gate
+        amt_this_adv    = (qty_curr * item_advance_rate).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
+        amt_prev_adv    = Decimal("0")  # non-retroactive — prev never carries Advance
+        amt_upto_adv    = amt_prev_adv + amt_this_adv
+        amt_balance_adv = (qty_balance * item_advance_rate).quantize(Decimal("0.01")) if advance_applicable else Decimal("0")
 
         item_adv_recovery = amt_this_adv
 
+        # Display-only flag: the Advance/Supply sub-row breakdown should
+        # only appear for items actually being billed IN THIS RA (i.e. new
+        # qty this period) — items with no activity this bill stay as a
+        # single flat row, unchanged, exactly as before this feature existed.
+        # (The underlying amounts above are unaffected either way — this
+        # only controls what export.py renders.)
+        advance_display = advance_applicable and qty_curr > 0
+
         # TOTAL amounts (backward compatible — what any existing consumer of
-        # amount_prev/this/upto/balance expects: Supply + Advance combined)
-        amt_prev    = amt_prev_supply + amt_prev_adv
-        amt_this    = amt_this_supply + amt_this_adv
-        amt_upto    = amt_upto_supply + amt_upto_adv
-        amt_balance = amt_balance_supply  # Advance never reduces "Bal Amt", matches prior behaviour
+        # amount_prev/this/upto expects: Supply-stage + Advance-stage
+        # combined). amount_balance stays tied to the item's FULL original
+        # rate — its total remaining commitment value, independent of stage
+        # split — matching the meaning this field has always had, and what
+        # Reconciliation / PO tracking rely on.
+        amt_prev    = amt_prev_supply_stage + amt_prev_adv
+        amt_this    = amt_this_supply_stage + amt_this_adv
+        amt_upto    = amt_upto_supply_stage + amt_upto_adv
+        amt_balance = qty_balance * rate
 
         if item.item_type == "supply":
             supply_prev += amt_prev; supply_this += amt_this
@@ -193,16 +222,19 @@ def compute_ra(pid):
             "amount_balance":float(amt_balance),
             "item_type":     item.item_type,
             "advance_recovery_this_item": float(item_adv_recovery),
-            "advance_applicable": advance_applicable,
-            "advance_rate": float(item_adv_rate_used),
+            "advance_applicable": advance_display,
+            "advance_rate": float(item_advance_rate),
+            "advance_pct": float(advance_pct_proj),
+            "supply_pct": float(supply_pct_proj),
             "advance_amount_prev": float(amt_prev_adv),
             "advance_amount_this": float(amt_this_adv),
             "advance_amount_upto": float(amt_upto_adv),
             "advance_amount_balance": float(amt_balance_adv),
-            "supply_only_amount_prev": float(amt_prev_supply),
-            "supply_only_amount_this": float(amt_this_supply),
-            "supply_only_amount_upto": float(amt_upto_supply),
-            "supply_only_amount_balance": float(amt_balance_supply),
+            "supply_only_rate": float(item_supply_rate),
+            "supply_only_amount_prev": float(amt_prev_supply_stage),
+            "supply_only_amount_this": float(amt_this_supply_stage),
+            "supply_only_amount_upto": float(amt_upto_supply_stage),
+            "supply_only_amount_balance": float(amt_balance_supply_stage),
         })
 
     # ec_* kept as derived sum for Tax Invoice / Reconciliation compatibility

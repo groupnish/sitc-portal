@@ -40,6 +40,35 @@ def amount_in_words(amount):
     return result.strip() + " Rupees Only"
 
 
+def pct_str(value):
+    """Format a Payment Terms percentage cleanly — 20.00 -> '20%', 12.50 -> '12.5%'."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return "0%"
+    if v == int(v):
+        return f"{int(v)}%"
+    return f"{v:g}%"
+
+
+def stage_label_with_pct(li, project, base_label, kind):
+    """Build a stage sub-row label with its Payment Terms % appended, e.g.
+    'Advance (20%)' / 'Supply (80%)' / 'Installation (10%)'. `kind` selects
+    which project percentage applies; li's own advance_pct/supply_pct
+    (captured live at compute time) are preferred when present since they
+    reflect the % actually used for that bill."""
+    pct = None
+    if kind == "advance":
+        pct = li.get("advance_pct", project.pt_advance_pct)
+    elif kind == "supply":
+        pct = li.get("supply_pct", project.pt_lc_pct)
+    elif kind == "erection":
+        pct = project.pt_installation_pct
+    elif kind == "commissioning":
+        pct = project.pt_commissioning_pct
+    return f"{base_label} ({pct_str(pct)})"
+
+
 def generate_ra_excel(ra, project, line_items):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -65,7 +94,7 @@ def generate_ra_excel(ra, project, line_items):
         if fmt:  c.number_format = fmt
         return c
 
-    col_widths = [6, 60, 8, 10, 12, 10, 12, 10, 12, 10, 12, 10, 12]
+    col_widths = [18, 55, 8, 10, 12, 10, 12, 10, 12, 10, 12, 10, 12]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -162,14 +191,16 @@ def generate_ra_excel(ra, project, line_items):
             for li in items:
                 if li.get("advance_applicable"):
                     write_stage_row(
-                        "Advance", li["unit"], li["po_qty"], li["advance_rate"],
+                        stage_label_with_pct(li, project, "Advance", "advance"),
+                        li["unit"], li["po_qty"], li["advance_rate"],
                         li["qty_prev"], li["advance_amount_prev"],
                         li["qty_this"], li["advance_amount_this"],
                         li["qty_upto"], li["advance_amount_upto"],
                         li["qty_balance"], li["advance_amount_balance"],
                     )
                     write_stage_row(
-                        "Supply", li["unit"], li["po_qty"], li["rate"],
+                        stage_label_with_pct(li, project, "Supply", "supply"),
+                        li["unit"], li["po_qty"], li.get("supply_only_rate", li["rate"]),
                         li["qty_prev"], li["supply_only_amount_prev"],
                         li["qty_this"], li["supply_only_amount_this"],
                         li["qty_upto"], li["supply_only_amount_upto"],
@@ -177,6 +208,7 @@ def generate_ra_excel(ra, project, line_items):
                     )
                 else:
                     stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                    stage_label = stage_label_with_pct(li, project, stage_label, li.get("item_type", ""))
                     write_stage_row(
                         stage_label, li["unit"], li["po_qty"], li["rate"],
                         li["qty_prev"], li["amount_prev"],
@@ -217,8 +249,10 @@ def generate_ra_excel(ra, project, line_items):
         r += 1
 
     summary_row("Supply value (this bill)", float(ra.supply_value_this))
-    summary_row("Installation value (this bill)", float(ra.installation_value_this or 0))
-    summary_row("Commissioning value (this bill)", float(ra.commissioning_value_this or 0))
+    if float(project.pt_installation_pct or 0) > 0:
+        summary_row("Installation value (this bill)", float(ra.installation_value_this or 0))
+    if float(project.pt_commissioning_pct or 0) > 0:
+        summary_row("Commissioning value (this bill)", float(ra.commissioning_value_this or 0))
     summary_row("Taxable value", float(ra.taxable_value), bold=True)
     if float(ra.igst_amount) > 0:
         summary_row(f"IGST @ {project.igst_rate}%", float(ra.igst_amount))
@@ -411,15 +445,17 @@ def generate_ra_pdf(ra, project, line_items):
         sub_row_data = []  # each entry: (label, row_cells)
         for li in items:
             if li.get("advance_applicable"):
-                sub_row_data.append(("Advance", stage_subrow(
-                    "Advance", li["unit"], li["po_qty"], li["advance_rate"],
+                adv_label = stage_label_with_pct(li, project, "Advance", "advance")
+                sub_row_data.append((adv_label, stage_subrow(
+                    adv_label, li["unit"], li["po_qty"], li["advance_rate"],
                     li["qty_prev"], li["advance_amount_prev"],
                     li["qty_this"], li["advance_amount_this"],
                     li["qty_upto"], li["advance_amount_upto"],
                     li["qty_balance"], li["advance_amount_balance"],
                 )))
-                sub_row_data.append(("Supply", stage_subrow(
-                    "Supply", li["unit"], li["po_qty"], li["rate"],
+                sup_label = stage_label_with_pct(li, project, "Supply", "supply")
+                sub_row_data.append((sup_label, stage_subrow(
+                    sup_label, li["unit"], li["po_qty"], li.get("supply_only_rate", li["rate"]),
                     li["qty_prev"], li["supply_only_amount_prev"],
                     li["qty_this"], li["supply_only_amount_this"],
                     li["qty_upto"], li["supply_only_amount_upto"],
@@ -427,6 +463,7 @@ def generate_ra_pdf(ra, project, line_items):
                 )))
             else:
                 stage_label = STAGE_LABELS.get(li.get("item_type", ""), li.get("item_type", ""))
+                stage_label = stage_label_with_pct(li, project, stage_label, li.get("item_type", ""))
                 sub_row_data.append((stage_label, stage_subrow(
                     stage_label, li["unit"], li["po_qty"], li["rate"],
                     li["qty_prev"], li["amount_prev"],
@@ -461,7 +498,7 @@ def generate_ra_pdf(ra, project, line_items):
             ))
             row_idx += 1
 
-    col_widths = [10*mm, 55*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]
+    col_widths = [22*mm, 51*mm, 12*mm, 16*mm, 16*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm, 16*mm, 18*mm]
     table_style_cmds = [
         ("BACKGROUND", (0,0), (-1,0), GREEN_FILL),
         ("GRID", (0,0), (-1,-1), 0.5, BORDER),
@@ -483,10 +520,12 @@ def generate_ra_pdf(ra, project, line_items):
     # Summary table
     summary_rows = [
         ["Supply value (this bill)", f"Rs. {float(ra.supply_value_this):,.2f}", False],
-        ["Installation value (this bill)", f"Rs. {float(ra.installation_value_this or 0):,.2f}", False],
-        ["Commissioning value (this bill)", f"Rs. {float(ra.commissioning_value_this or 0):,.2f}", False],
-        ["Taxable value", f"Rs. {float(ra.taxable_value):,.2f}", True],
     ]
+    if float(project.pt_installation_pct or 0) > 0:
+        summary_rows.append(["Installation value (this bill)", f"Rs. {float(ra.installation_value_this or 0):,.2f}", False])
+    if float(project.pt_commissioning_pct or 0) > 0:
+        summary_rows.append(["Commissioning value (this bill)", f"Rs. {float(ra.commissioning_value_this or 0):,.2f}", False])
+    summary_rows.append(["Taxable value", f"Rs. {float(ra.taxable_value):,.2f}", True])
     if float(ra.igst_amount) > 0:
         summary_rows.append([f"IGST @ {project.igst_rate}%", f"Rs. {float(ra.igst_amount):,.2f}", False])
     if float(ra.cgst_amount) > 0:
