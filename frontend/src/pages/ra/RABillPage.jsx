@@ -7,6 +7,163 @@ import toast from 'react-hot-toast'
 const today = () => new Date().toISOString().split('T')[0]
 const fmt = n => `₹${Number(n).toLocaleString('en-IN', {minimumFractionDigits:2})}`
 
+const pctStr = v => `${Number(v || 0)}%`
+
+const STAGE_LABELS = { supply: 'Supply', erection: 'Installation', commissioning: 'Commissioning' }
+
+// Mirrors the same grouping/stage-expansion logic used in the backend's
+// RA Bill PDF/Excel generators (services/export.py) — groups items by Sr.
+// No., and expands any item flagged advance_applicable (by compute_ra) into
+// separate Advance/Supply sub-rows with their Payment Terms %. Kept as a
+// client-side preview only — the actual PDF/Excel are still the source of
+// truth once saved.
+function buildPreviewHtml(computed, project, invoiceNo, invoiceDate) {
+  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+  const money = n => Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})
+  const qty = n => Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits:3, maximumFractionDigits:3})
+
+  const groups = {}
+  const order = []
+  ;(computed.lines || []).forEach(li => {
+    if (!groups[li.sr_no]) { groups[li.sr_no] = []; order.push(li.sr_no) }
+    groups[li.sr_no].push(li)
+  })
+
+  const subRow = (label, unit, po_qty, rate, qp, ap, qt, at, qu, au, qb, ab) => `
+    <tr>
+      <td></td>
+      <td style="padding-left:22px">• ${esc(label)}</td>
+      <td style="text-align:center">${esc(unit)}</td>
+      <td style="text-align:right">${qty(po_qty)}</td>
+      <td style="text-align:right">${money(rate)}</td>
+      <td style="text-align:right">${qty(qp)}</td>
+      <td style="text-align:right">${money(ap)}</td>
+      <td style="text-align:right">${qty(qt)}</td>
+      <td style="text-align:right">${money(at)}</td>
+      <td style="text-align:right">${qty(qu)}</td>
+      <td style="text-align:right">${money(au)}</td>
+      <td style="text-align:right">${qty(qb)}</td>
+      <td style="text-align:right">${money(ab)}</td>
+    </tr>`
+
+  const flatRow = (sr, desc, unit, po_qty, rate, qp, ap, qt, at, qu, au, qb, ab) => `
+    <tr>
+      <td style="text-align:center;font-weight:600">${esc(sr)}</td>
+      <td>${esc(desc)}</td>
+      <td style="text-align:center">${esc(unit)}</td>
+      <td style="text-align:right">${qty(po_qty)}</td>
+      <td style="text-align:right">${money(rate)}</td>
+      <td style="text-align:right">${qty(qp)}</td>
+      <td style="text-align:right">${money(ap)}</td>
+      <td style="text-align:right">${qty(qt)}</td>
+      <td style="text-align:right">${money(at)}</td>
+      <td style="text-align:right">${qty(qu)}</td>
+      <td style="text-align:right">${money(au)}</td>
+      <td style="text-align:right">${qty(qb)}</td>
+      <td style="text-align:right">${money(ab)}</td>
+    </tr>`
+
+  let rowsHtml = ''
+  order.forEach(sr_no => {
+    const items = groups[sr_no]
+    const desc = items[0].description
+    const displaySr = items[0].customer_sr_no || sr_no
+
+    const subRows = []
+    items.forEach(li => {
+      if (li.advance_applicable) {
+        subRows.push(subRow(
+          `Advance (${pctStr(li.advance_pct)})`, li.unit, li.po_qty, li.advance_rate,
+          li.qty_prev, li.advance_amount_prev, li.qty_this, li.advance_amount_this,
+          li.qty_upto, li.advance_amount_upto, li.qty_balance, li.advance_amount_balance,
+        ))
+        subRows.push(subRow(
+          `Supply (${pctStr(li.supply_pct)})`, li.unit, li.po_qty, li.supply_only_rate,
+          li.qty_prev, li.supply_only_amount_prev, li.qty_this, li.supply_only_amount_this,
+          li.qty_upto, li.supply_only_amount_upto, li.qty_balance, li.supply_only_amount_balance,
+        ))
+      } else {
+        const base = STAGE_LABELS[li.item_type] || li.item_type
+        const pct = li.item_type === 'erection' ? project.pt_installation_pct
+                  : li.item_type === 'commissioning' ? project.pt_commissioning_pct
+                  : project.pt_lc_pct
+        subRows.push(subRow(
+          `${base} (${pctStr(pct)})`, li.unit, li.po_qty, li.rate,
+          li.qty_prev, li.amount_prev, li.qty_this, li.amount_this,
+          li.qty_upto, li.amount_upto, li.qty_balance, li.amount_balance,
+        ))
+      }
+    })
+
+    if (subRows.length > 1) {
+      rowsHtml += `
+        <tr style="background:#F1EFE8;font-weight:600">
+          <td style="text-align:center">${esc(displaySr)}</td>
+          <td colspan="12">${esc(desc)}</td>
+        </tr>`
+      rowsHtml += subRows.join('')
+    } else {
+      const li = items[0]
+      rowsHtml += flatRow(
+        displaySr, desc, li.unit, li.po_qty, li.rate,
+        li.qty_prev, li.amount_prev, li.qty_this, li.amount_this,
+        li.qty_upto, li.amount_upto, li.qty_balance, li.amount_balance,
+      )
+    }
+  })
+
+  const summaryRows = []
+  summaryRows.push(['Supply value (this bill)', money(computed.supply_value_this), false])
+  if (Number(project.pt_installation_pct || 0) > 0)
+    summaryRows.push(['Installation value (this bill)', money(computed.installation_value_this), false])
+  if (Number(project.pt_commissioning_pct || 0) > 0)
+    summaryRows.push(['Commissioning value (this bill)', money(computed.commissioning_value_this), false])
+  summaryRows.push(['Taxable value', money(computed.taxable_value), true])
+  if (computed.igst_amount > 0) summaryRows.push([`IGST @ ${project.igst_rate}%`, money(computed.igst_amount), false])
+  if (computed.cgst_amount > 0) {
+    summaryRows.push([`CGST @ ${project.cgst_rate}%`, money(computed.cgst_amount), false])
+    summaryRows.push([`SGST @ ${project.sgst_rate}%`, money(computed.sgst_amount), false])
+  }
+  summaryRows.push(['Gross total', money(computed.gross_total), true])
+  summaryRows.push([`Less: Advance recovery (${project.pt_advance_pct}%)`, money(computed.advance_recovery), false])
+  if (computed.retention_deduction > 0)
+    summaryRows.push([`Less: Retention (${project.pt_retention_pct}%)`, money(computed.retention_deduction), false])
+  summaryRows.push(['Net payable', money(computed.net_payable), true])
+
+  const summaryHtml = summaryRows.map(([label, value, bold]) => `
+    <tr style="${bold ? 'font-weight:700;background:#E1F5EE' : ''}">
+      <td style="padding:6px 12px;border:1px solid #ccc">${esc(label)}</td>
+      <td style="padding:6px 12px;border:1px solid #ccc;text-align:right">Rs. ${value}</td>
+    </tr>`).join('')
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>RA Bill Preview — ${esc(invoiceNo)}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #222; }
+  h1 { font-size: 18px; text-align: center; color: #0F6E56; margin-bottom: 4px; }
+  .sub { text-align: center; font-size: 12px; color: #555; margin-bottom: 16px; }
+  .banner { background:#FFF8E1; border:1px solid #E8C468; color:#854F0B; padding:8px 12px; font-size:12px; margin-bottom:16px; border-radius:4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; margin-bottom: 20px; }
+  th, td { border: 1px solid #ccc; padding: 5px 6px; }
+  th { background: #E1F5EE; text-align:center; }
+  .summary-table { width: 420px; margin-left: auto; font-size: 12px; }
+</style></head>
+<body>
+  <div class="banner">PREVIEW ONLY — this RA Bill has not been saved yet. Values may change if new GRN/Dispatch/Site Progress entries are added before you save.</div>
+  <h1>RA Bill No. ${esc(computed.ra_number)} — ${esc(project.name)}</h1>
+  <div class="sub">Invoice No: ${esc(invoiceNo)} | Date: ${esc(invoiceDate)} | WO: ${esc(project.wo_number || '')} | HSN: ${esc(project.hsn_sac_code || '')}</div>
+  <table>
+    <thead><tr>
+      <th>Sr.</th><th>Description</th><th>Unit</th><th>PO Qty</th><th>Rate</th>
+      <th>Prev Qty</th><th>Prev Amt</th><th>This Qty</th><th>This Amt</th>
+      <th>Upto Qty</th><th>Upto Amt</th><th>Bal Qty</th><th>Bal Amt</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+  <table class="summary-table"><tbody>${summaryHtml}</tbody></table>
+</body></html>`
+}
+
 export default function RABillPage() {
   const { activeProject, user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -61,6 +218,16 @@ export default function RABillPage() {
       toast.success('RA bill computed — review and save')
     } catch(e) { toast.error(e.response?.data?.error||'Compute error')
     } finally { setLoading(false) }
+  }
+
+  const openPreview = () => {
+    if (!computed) return
+    const html = buildPreviewHtml(computed, activeProject, invoiceNo, invoiceDate)
+    const win = window.open('', '_blank')
+    if (!win) { toast.error('Popup blocked — allow popups for this site to preview'); return }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
   }
 
   const save = async () => {
@@ -264,6 +431,9 @@ export default function RABillPage() {
                 <div className="summary-row total"><span>Net payable</span><span style={{fontSize:16,fontWeight:700}}>{fmt(computed.net_payable)}</span></div>
               </div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                <button className="btn" onClick={openPreview}>
+                  👁 Preview
+                </button>
                 <button className="btn btn-primary" onClick={save} disabled={saving}>
                   {saving?'Saving…':'Save RA bill'}
                 </button>
