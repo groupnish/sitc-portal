@@ -601,6 +601,26 @@ def generate_ra_pdf(ra, project, line_items):
 # TAX INVOICE GENERATORS
 # ─────────────────────────────────────────────────────────────────────────────
 
+def tax_invoice_milestone_label(ra):
+    """Determine which milestone(s) this bill's Tax Invoice item description
+    should reference, for Work Contract projects. Checked most-specific
+    combination first:
+      Installation + Commissioning both billed this bill -> combined label
+      Installation only  -> Installation Milestone
+      Commissioning only -> Commissioning Milestone
+      Otherwise (Advance+Supply, Supply-only, or nothing billed) -> Supply
+    """
+    has_install = float(ra.installation_value_this or 0) > 0
+    has_comm    = float(ra.commissioning_value_this or 0) > 0
+    if has_install and has_comm:
+        return "Installation & Commissioning Milestone"
+    if has_install:
+        return "Installation Milestone"
+    if has_comm:
+        return "Commissioning Milestone"
+    return "Supply Milestone"
+
+
 def generate_tax_invoice_pdf(ra, project):
     """Generate GST Tax Invoice PDF using ReportLab — pure Python, no system deps."""
     from reportlab.lib.pagesizes import A4
@@ -650,7 +670,7 @@ def generate_tax_invoice_pdf(ra, project):
         pass
 
     # Title — no IRN line
-    elements.append(Paragraph("TAX INVOICE — RUNNING ACCOUNT (RA) BILL", title_s))
+    elements.append(Paragraph("TAX INVOICE", title_s))
     elements.append(Spacer(1, 4))
 
     # Bill meta row
@@ -703,6 +723,76 @@ def generate_tax_invoice_pdf(ra, project):
         ("LEFTPADDING", (0,0), (-1,-1), 5),
     ]))
     elements.append(party_tbl)
+    elements.append(Spacer(1, 6))
+
+    # ── Description of Goods/Services ─────────────────────────────────────
+    # Work Contract projects: ONE line item — "Sales_Work Contract" plus
+    # which milestone this bill covers, referencing the attached RA Bill for
+    # the full item-level breakdown (matches how SITC work contracts are
+    # invoiced — a single service line against the Work Order, not
+    # itemized products).
+    # Purchase Order projects: each RA Bill item listed individually, since
+    # a PO is invoiced per product/line the way a standard supply invoice is.
+    elements.append(Paragraph("<b>DESCRIPTION OF GOODS / SERVICES</b>", hdr_s))
+    elements.append(Spacer(1, 3))
+
+    if getattr(project, "project_type", "work_contract") == "purchase_order":
+        po_lines = [li for li in ra.line_items if float(li.qty_this or 0) > 0]
+        item_hdr = [
+            Paragraph("<b>Sr.</b>", cell_c), Paragraph("<b>Description</b>", cell_b),
+            Paragraph("<b>HSN/SAC</b>", cell_c), Paragraph("<b>Qty</b>", cell_rb),
+            Paragraph("<b>Rate</b>", cell_rb), Paragraph("<b>Amount</b>", cell_rb),
+        ]
+        item_data = [item_hdr]
+        for li in po_lines:
+            bi = li.boq_item
+            disp_sr = (bi.customer_sr_no or bi.sr_no) if bi else ""
+            desc    = bi.description if bi else ""
+            hsn     = (bi.hsn_code or project.hsn_sac_code) if bi else project.hsn_sac_code
+            rate    = float(bi.rate) if bi else 0
+            item_data.append([
+                Paragraph(str(disp_sr), cell_c), Paragraph(desc, cell_s),
+                Paragraph(str(hsn or ""), cell_c), Paragraph(f"{float(li.qty_this):,.3f}", cell_r),
+                Paragraph(f"{rate:,.2f}", cell_r), Paragraph(f"{float(li.amount_this):,.2f}", cell_r),
+            ])
+        item_data.append([
+            "", "", "", "", Paragraph("<b>Total</b>", cell_rb),
+            Paragraph(f"<b>{sum(float(li.amount_this) for li in po_lines):,.2f}</b>", cell_rb),
+        ])
+        item_tbl = Table(item_data, colWidths=[14*mm, 76*mm, 20*mm, 20*mm, 24*mm, 32*mm])
+        item_tbl.setStyle(TableStyle([
+            ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
+            ("BACKGROUND",  (0,-1), (-1,-1), GREEN_FILL),
+            ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+            ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+            ("VALIGN",      (0,0), (-1,-1), "TOP"),
+            ("TOPPADDING",  (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING",(0,0),(-1,-1),3),
+            ("LEFTPADDING", (0,0), (-1,-1), 4),
+        ]))
+        elements.append(item_tbl)
+    else:
+        milestone = tax_invoice_milestone_label(ra)
+        desc_text = "<br/>".join(["Sales_Work Contract", milestone, "As per attached RA invoice"])
+        item_data = [[
+            Paragraph("<b>Sr.</b>", cell_c), Paragraph("<b>Description</b>", cell_b),
+            Paragraph("<b>HSN/SAC</b>", cell_c), Paragraph("<b>Taxable Value</b>", cell_rb),
+        ],[
+            Paragraph("1", cell_c), Paragraph(desc_text, cell_s),
+            Paragraph(str(project.hsn_sac_code or ""), cell_c),
+            Paragraph(f"{float(ra.taxable_value):,.2f}", cell_r),
+        ]]
+        item_tbl = Table(item_data, colWidths=[14*mm, 100*mm, 24*mm, 48*mm])
+        item_tbl.setStyle(TableStyle([
+            ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
+            ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
+            ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
+            ("VALIGN",      (0,0), (-1,-1), "TOP"),
+            ("TOPPADDING",  (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING",(0,0),(-1,-1),3),
+            ("LEFTPADDING", (0,0), (-1,-1), 4),
+        ]))
+        elements.append(item_tbl)
     elements.append(Spacer(1, 6))
 
     # Abstract of Bill
@@ -890,7 +980,7 @@ def generate_tax_invoice_excel(ra, project):
         pass
 
     r = 3
-    merge(r, 1, 6, "TAX INVOICE — RUNNING ACCOUNT (RA) BILL",
+    merge(r, 1, 6, "TAX INVOICE",
           bold=True, fill=TEAL_FILL, size=13, color="FFFFFF")
     ws.row_dimensions[r].height = 24; r += 1
     # IRN line removed
@@ -923,6 +1013,49 @@ def generate_tax_invoice_excel(ra, project):
         for i, val in enumerate(line):
             sc(r, 2 + i, val, align=L, size=9)
         ws.row_dimensions[r].height = 20
+        r += 1
+
+    ws.row_dimensions[r].height = 10; r += 1
+
+    # ── Description of Goods/Services ─────────────────────────────────────
+    merge(r, 1, 6, "DESCRIPTION OF GOODS / SERVICES", bold=True, fill=GRAY_FILL, align=L)
+    r += 1
+
+    if getattr(project, "project_type", "work_contract") == "purchase_order":
+        po_lines = [li for li in ra.line_items if float(li.qty_this or 0) > 0]
+        item_hdrs = ["Sr.", "Description", "HSN/SAC", "Qty", "Rate", "Amount"]
+        for i, h in enumerate(item_hdrs, 1):
+            sc(r, i, h, bold=True, fill=GRAY_FILL, align=C)
+        r += 1
+        total_amt = 0
+        for li in po_lines:
+            bi = li.boq_item
+            disp_sr = (bi.customer_sr_no or bi.sr_no) if bi else ""
+            desc    = bi.description if bi else ""
+            hsn     = (bi.hsn_code or project.hsn_sac_code) if bi else project.hsn_sac_code
+            rate    = float(bi.rate) if bi else 0
+            sc(r, 1, disp_sr, align=C)
+            sc(r, 2, desc, align=L)
+            sc(r, 3, hsn or "", align=C)
+            sc(r, 4, float(li.qty_this), align=R, fmt="#,##0.000")
+            sc(r, 5, rate, align=R, fmt=FMT)
+            sc(r, 6, float(li.amount_this), align=R, fmt=FMT)
+            total_amt += float(li.amount_this)
+            r += 1
+        sc(r, 5, "Total", bold=True, fill=GREEN_FILL, align=R)
+        sc(r, 6, total_amt, bold=True, fill=GREEN_FILL, align=R, fmt=FMT)
+        r += 1
+    else:
+        milestone = tax_invoice_milestone_label(ra)
+        desc_text = "Sales_Work Contract | " + milestone + " | As per attached RA invoice"
+        item_hdrs = ["Sr.", "Description", "", "", "HSN/SAC", "Taxable Value"]
+        for i, h in enumerate(item_hdrs, 1):
+            if h: sc(r, i, h, bold=True, fill=GRAY_FILL, align=C)
+        r += 1
+        sc(r, 1, "1", align=C)
+        merge(r, 2, 4, desc_text, align=L, size=9)
+        sc(r, 5, project.hsn_sac_code or "", align=C)
+        sc(r, 6, float(ra.taxable_value), align=R, fmt=FMT)
         r += 1
 
     ws.row_dimensions[r].height = 10; r += 1
