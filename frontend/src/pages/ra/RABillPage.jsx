@@ -164,6 +164,151 @@ function buildPreviewHtml(computed, project, invoiceNo, invoiceDate) {
 </body></html>`
 }
 
+// Mirrors generate_tax_invoice_pdf/excel in services/export.py — same
+// milestone-label logic and Work Contract vs Purchase Order branching for
+// the Description of Goods/Services section. Client-side preview only.
+function taxInvoiceMilestoneLabel(computed) {
+  const hasInstall = Number(computed.installation_value_this || 0) > 0
+  const hasComm    = Number(computed.commissioning_value_this || 0) > 0
+  if (hasInstall && hasComm) return 'Installation & Commissioning Milestone'
+  if (hasInstall) return 'Installation Milestone'
+  if (hasComm)    return 'Commissioning Milestone'
+  return 'Supply Milestone'
+}
+
+function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
+  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+  const money = n => Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})
+  const qty = n => Number(n || 0).toLocaleString('en-IN', {minimumFractionDigits:3, maximumFractionDigits:3})
+
+  const isPO = (project.project_type || 'work_contract') === 'purchase_order'
+
+  let descHtml = ''
+  if (isPO) {
+    const poLines = (computed.lines || []).filter(li => Number(li.qty_this || 0) > 0)
+    const total = poLines.reduce((a, li) => a + Number(li.amount_this || 0), 0)
+    descHtml = `
+      <table>
+        <thead><tr><th>Sr.</th><th>Description</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+        <tbody>
+          ${poLines.map(li => `
+            <tr>
+              <td style="text-align:center">${esc(li.customer_sr_no || li.sr_no)}</td>
+              <td>${esc(li.description)}</td>
+              <td style="text-align:center">${esc(li.hsn_code || project.hsn_sac_code || '')}</td>
+              <td style="text-align:right">${qty(li.qty_this)}</td>
+              <td style="text-align:right">${money(li.rate)}</td>
+              <td style="text-align:right">${money(li.amount_this)}</td>
+            </tr>`).join('')}
+          <tr style="background:#E1F5EE;font-weight:700">
+            <td colspan="5" style="text-align:right">Total</td>
+            <td style="text-align:right">${money(total)}</td>
+          </tr>
+        </tbody>
+      </table>`
+  } else {
+    const milestone = taxInvoiceMilestoneLabel(computed)
+    descHtml = `
+      <table>
+        <thead><tr><th>Sr.</th><th>Description</th><th>HSN/SAC</th><th>Taxable Value</th></tr></thead>
+        <tbody>
+          <tr>
+            <td style="text-align:center">1</td>
+            <td>Sales_Work Contract<br/>${esc(milestone)}<br/>As per attached RA invoice</td>
+            <td style="text-align:center">${esc(project.hsn_sac_code || '')}</td>
+            <td style="text-align:right">${money(computed.taxable_value)}</td>
+          </tr>
+        </tbody>
+      </table>`
+  }
+
+  const orderValP1 = Number(project.wo_value_supply || 0)
+  const orderValP2 = Number(project.wo_value_ec || 0)
+  const abstractHtml = `
+    <table>
+      <thead><tr><th>Part</th><th>Order Value</th><th>Up-to-Date Billed</th><th>Previous Billed</th><th>THIS BILL</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Part 1 — Balance Supply (SITC)</td>
+          <td style="text-align:right">${money(orderValP1)}</td>
+          <td style="text-align:right">${money(computed.supply_value_upto)}</td>
+          <td style="text-align:right">${money(computed.supply_value_prev)}</td>
+          <td style="text-align:right">${money(computed.supply_value_this)}</td>
+        </tr>
+        <tr>
+          <td>Part 2 — Installation &amp; Commissioning</td>
+          <td style="text-align:right">${money(orderValP2)}</td>
+          <td style="text-align:right">${money(computed.ec_value_upto)}</td>
+          <td style="text-align:right">${money(computed.ec_value_prev)}</td>
+          <td style="text-align:right">${money(computed.ec_value_this)}</td>
+        </tr>
+        <tr style="background:#E1F5EE;font-weight:700">
+          <td>TOTAL TAXABLE AMOUNT</td>
+          <td style="text-align:right">${money(orderValP1 + orderValP2)}</td>
+          <td style="text-align:right">${money(computed.supply_value_upto + computed.ec_value_upto)}</td>
+          <td style="text-align:right">${money(computed.supply_value_prev + computed.ec_value_prev)}</td>
+          <td style="text-align:right">${money(computed.taxable_value)}</td>
+        </tr>
+      </tbody>
+    </table>`
+
+  const summaryRows = []
+  if (computed.igst_amount > 0) summaryRows.push([`IGST @ ${project.igst_rate}%`, computed.igst_amount, false])
+  if (computed.cgst_amount > 0) {
+    summaryRows.push([`CGST @ ${project.cgst_rate}%`, computed.cgst_amount, false])
+    summaryRows.push([`SGST @ ${project.sgst_rate}%`, computed.sgst_amount, false])
+  }
+  summaryRows.push(['TOTAL INVOICE VALUE (incl. GST)', computed.gross_total, true])
+  summaryRows.push([`Less: Advance adjusted (${project.pt_advance_pct}% of Part-1 this bill)`, computed.advance_recovery, false])
+  if (computed.retention_deduction > 0)
+    summaryRows.push([`Less: Retention (${project.pt_retention_pct}%)`, computed.retention_deduction, false])
+  summaryRows.push(['NET AMOUNT RECEIVABLE', computed.net_payable, true])
+
+  const summaryHtml = summaryRows.map(([label, value, bold]) => `
+    <tr style="${bold ? 'font-weight:700;background:#E1F5EE' : ''}">
+      <td style="padding:6px 12px;border:1px solid #ccc">${esc(label)}</td>
+      <td style="padding:6px 12px;border:1px solid #ccc;text-align:right">Rs. ${money(value)}</td>
+    </tr>`).join('')
+
+  const partyBlock = (title, name, addr, gstin) => `
+    <div style="flex:1;border:1px solid #ccc;padding:8px;font-size:11px">
+      <b>${esc(title)}</b><br/><b>${esc(name || '')}</b><br/>${esc(addr || '')}
+      ${gstin ? `<br/>GST No: ${esc(gstin)}` : ''}
+    </div>`
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tax Invoice Preview — ${esc(invoiceNo)}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #222; }
+  h1 { font-size: 18px; text-align: center; color: #0F6E56; margin-bottom: 4px; }
+  .sub { text-align: center; font-size: 12px; color: #555; margin-bottom: 16px; }
+  .banner { background:#FFF8E1; border:1px solid #E8C468; color:#854F0B; padding:8px 12px; font-size:12px; margin-bottom:16px; border-radius:4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; margin-bottom: 20px; }
+  th, td { border: 1px solid #ccc; padding: 5px 6px; }
+  th { background: #F1EFE8; text-align:center; }
+  .parties { display:flex; gap:8px; margin-bottom:16px; }
+  .summary-table { width: 420px; margin-left: auto; font-size: 12px; }
+</style></head>
+<body>
+  <div class="banner">PREVIEW ONLY — this Tax Invoice has not been saved yet, and is generated from an unsaved RA Bill computation.</div>
+  <h1>TAX INVOICE</h1>
+  <div class="sub">
+    RA Bill No.: ${esc(computed.ra_number)} | Invoice No.: ${esc(invoiceNo)} | Invoice Date: ${esc(invoiceDate)}<br/>
+    W.O. No.: ${esc(project.wo_number || '')} | HSN/SAC: ${esc(project.hsn_sac_code || '')} | Place of Supply: ${esc(project.place_of_supply || '')}
+  </div>
+  <div class="parties">
+    ${partyBlock('SELLER', project.seller_name, project.seller_address, project.seller_gstin)}
+    ${partyBlock('BUYER', project.client_name, project.client_address, project.client_gstin)}
+    ${partyBlock('CONSIGNEE / SITE', project.site_name || project.client_name, project.site_address, null)}
+  </div>
+  <div style="font-weight:700;font-size:12px;margin-bottom:6px">DESCRIPTION OF GOODS / SERVICES</div>
+  ${descHtml}
+  <div style="font-weight:700;font-size:12px;margin-bottom:6px">ABSTRACT OF BILL (Taxable Values)</div>
+  ${abstractHtml}
+  <table class="summary-table"><tbody>${summaryHtml}</tbody></table>
+</body></html>`
+}
+
 export default function RABillPage() {
   const { activeProject, user } = useAuth()
   const isAdmin = user?.role === 'admin'
@@ -223,6 +368,16 @@ export default function RABillPage() {
   const openPreview = () => {
     if (!computed) return
     const html = buildPreviewHtml(computed, activeProject, invoiceNo, invoiceDate)
+    const win = window.open('', '_blank')
+    if (!win) { toast.error('Popup blocked — allow popups for this site to preview'); return }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+  }
+
+  const openTaxInvoicePreview = () => {
+    if (!computed) return
+    const html = buildTaxInvoicePreviewHtml(computed, activeProject, invoiceNo, invoiceDate)
     const win = window.open('', '_blank')
     if (!win) { toast.error('Popup blocked — allow popups for this site to preview'); return }
     win.document.open()
@@ -432,7 +587,11 @@ export default function RABillPage() {
               </div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                 <button className="btn" onClick={openPreview}>
-                  👁 Preview
+                  👁 RA Bill Preview
+                </button>
+                <button className="btn" onClick={openTaxInvoicePreview}
+                  style={{background:'var(--purple)',color:'#fff',border:'none'}}>
+                  🧾 Tax Invoice Preview
                 </button>
                 <button className="btn btn-primary" onClick={save} disabled={saving}>
                   {saving?'Saving…':'Save RA bill'}

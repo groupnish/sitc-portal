@@ -209,6 +209,7 @@ def compute_ra(pid):
             "boq_item_id":   item.id,
             "sr_no":         item.sr_no,
             "customer_sr_no": item.customer_sr_no or "",
+            "hsn_code":      item.hsn_code or "",
             "description":   item.description,
             "unit":          item.unit,
             "rate":          float(rate),
