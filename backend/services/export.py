@@ -621,6 +621,36 @@ def tax_invoice_milestone_label(ra):
     return "Supply Milestone"
 
 
+def payment_terms_line(project):
+    """Build the Payment Terms text from the project's ACTUAL configured
+    Payment Terms percentages (Admin -> Projects -> Payment tab). Replaces
+    the old pt_part1_terms/pt_part2_terms free-text fields, which never
+    existed on the Project model — that code was silently always falling
+    back to hardcoded placeholder text regardless of what was configured."""
+    parts = []
+    if float(project.pt_advance_pct or 0) > 0:
+        parts.append(f"Advance: {pct_str(project.pt_advance_pct)}")
+    if float(project.pt_lc_pct or 0) > 0:
+        parts.append(f"Supply: {pct_str(project.pt_lc_pct)}")
+    if float(project.pt_installation_pct or 0) > 0:
+        parts.append(f"Installation: {pct_str(project.pt_installation_pct)}")
+    if float(project.pt_commissioning_pct or 0) > 0:
+        parts.append(f"Commissioning: {pct_str(project.pt_commissioning_pct)}")
+    if float(project.pt_retention_pct or 0) > 0:
+        parts.append(f"Retention: {pct_str(project.pt_retention_pct)}")
+    return " + ".join(parts) if parts else "As per Work Order / Purchase Order terms"
+
+
+def certification_line(project):
+    """Work Contract and Purchase Order projects are certified differently —
+    one references work executed, the other items supplied."""
+    if getattr(project, "project_type", "work_contract") == "purchase_order":
+        return ("Certified that the particulars given above are true and correct and the amount "
+                "claimed is as per actual Items Being Supplied.  E. & O. E.")
+    return ("Certified that the particulars given above are true and correct and the amount "
+            "claimed is as per actual work executed.  E. & O. E.")
+
+
 def generate_tax_invoice_pdf(ra, project):
     """Generate GST Tax Invoice PDF using ReportLab — pure Python, no system deps."""
     from reportlab.lib.pagesizes import A4
@@ -733,8 +763,31 @@ def generate_tax_invoice_pdf(ra, project):
     # itemized products).
     # Purchase Order projects: each RA Bill item listed individually, since
     # a PO is invoiced per product/line the way a standard supply invoice is.
+    # GST / advance / net-payable rows are integrated directly into this same
+    # table (no separate Abstract of Bill or summary table).
     elements.append(Paragraph("<b>DESCRIPTION OF GOODS / SERVICES</b>", hdr_s))
     elements.append(Spacer(1, 3))
+
+    tax_val  = float(ra.taxable_value); igst = float(ra.igst_amount)
+    cgst = float(ra.cgst_amount); sgst = float(ra.sgst_amount)
+    gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
+    ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
+    net_pay  = float(ra.net_payable)
+
+    def inr(v): return f"Rs. {v:,.2f}"
+
+    # Tax + summary rows — integrated directly into the item table below
+    # (no separate Abstract of Bill / summary table anymore)
+    tax_summary = []
+    if igst > 0: tax_summary.append((f"IGST @ {project.igst_rate}%", igst, False))
+    if cgst > 0:
+        tax_summary.append((f"CGST @ {project.cgst_rate}%", cgst, False))
+        tax_summary.append((f"SGST @ {project.sgst_rate}%", sgst, False))
+    tax_summary.append(("Total Invoice Value (incl. GST)", gross, True))
+    tax_summary.append((f"Less: Advance adjusted ({pct_str(project.pt_advance_pct)})", adv_rec, False))
+    if ret_ded > 0:
+        tax_summary.append((f"Less: Retention ({pct_str(project.pt_retention_pct)})", ret_ded, False))
+    tax_summary.append(("Net Amount Receivable", net_pay, True))
 
     if getattr(project, "project_type", "work_contract") == "purchase_order":
         po_lines = [li for li in ra.line_items if float(li.qty_this or 0) > 0]
@@ -759,17 +812,32 @@ def generate_tax_invoice_pdf(ra, project):
             "", "", "", "", Paragraph("<b>Total</b>", cell_rb),
             Paragraph(f"<b>{sum(float(li.amount_this) for li in po_lines):,.2f}</b>", cell_rb),
         ])
+        subtotal_row = len(item_data) - 1
+
+        span_cmds = []
+        for label, value, bold in tax_summary:
+            row_i = len(item_data)
+            ls = cell_b if bold else cell_s
+            rs = cell_rb if bold else cell_r
+            item_data.append([
+                Paragraph(f"<b>{label}</b>" if bold else label, ls), "", "", "", "",
+                Paragraph(f"<b>{inr(value)}</b>" if bold else inr(value), rs),
+            ])
+            span_cmds.append(("SPAN", (0, row_i), (4, row_i)))
+            if bold:
+                span_cmds.append(("BACKGROUND", (0, row_i), (-1, row_i), GREEN_FILL))
+
         item_tbl = Table(item_data, colWidths=[14*mm, 76*mm, 20*mm, 20*mm, 24*mm, 32*mm])
         item_tbl.setStyle(TableStyle([
             ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
-            ("BACKGROUND",  (0,-1), (-1,-1), GREEN_FILL),
+            ("BACKGROUND",  (0,subtotal_row), (-1,subtotal_row), GRAY_FILL),
             ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
             ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
             ("VALIGN",      (0,0), (-1,-1), "TOP"),
             ("TOPPADDING",  (0,0), (-1,-1), 3),
             ("BOTTOMPADDING",(0,0),(-1,-1),3),
             ("LEFTPADDING", (0,0), (-1,-1), 4),
-        ]))
+        ] + span_cmds))
         elements.append(item_tbl)
     else:
         milestone = tax_invoice_milestone_label(ra)
@@ -780,8 +848,22 @@ def generate_tax_invoice_pdf(ra, project):
         ],[
             Paragraph("1", cell_c), Paragraph(desc_text, cell_s),
             Paragraph(str(project.hsn_sac_code or ""), cell_c),
-            Paragraph(f"{float(ra.taxable_value):,.2f}", cell_r),
+            Paragraph(f"{tax_val:,.2f}", cell_r),
         ]]
+
+        span_cmds = []
+        for label, value, bold in tax_summary:
+            row_i = len(item_data)
+            ls = cell_b if bold else cell_s
+            rs = cell_rb if bold else cell_r
+            item_data.append([
+                Paragraph(f"<b>{label}</b>" if bold else label, ls), "", "",
+                Paragraph(f"<b>{inr(value)}</b>" if bold else inr(value), rs),
+            ])
+            span_cmds.append(("SPAN", (0, row_i), (2, row_i)))
+            if bold:
+                span_cmds.append(("BACKGROUND", (0, row_i), (-1, row_i), GREEN_FILL))
+
         item_tbl = Table(item_data, colWidths=[14*mm, 100*mm, 24*mm, 48*mm])
         item_tbl.setStyle(TableStyle([
             ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
@@ -791,99 +873,8 @@ def generate_tax_invoice_pdf(ra, project):
             ("TOPPADDING",  (0,0), (-1,-1), 3),
             ("BOTTOMPADDING",(0,0),(-1,-1),3),
             ("LEFTPADDING", (0,0), (-1,-1), 4),
-        ]))
+        ] + span_cmds))
         elements.append(item_tbl)
-    elements.append(Spacer(1, 6))
-
-    # Abstract of Bill
-    elements.append(Paragraph("<b>ABSTRACT OF BILL (Taxable Values)</b>", hdr_s))
-    elements.append(Spacer(1, 3))
-
-    order_val_p1 = float(getattr(project, "wo_value_supply", 0) or 0)
-    order_val_p2 = float(getattr(project, "wo_value_ec", 0) or 0)
-    order_total  = order_val_p1 + order_val_p2
-    sup_prev = float(ra.supply_value_prev); sup_this = float(ra.supply_value_this)
-    sup_upto = float(ra.supply_value_upto)
-    ec_prev  = float(ra.ec_value_prev);  ec_this  = float(ra.ec_value_this)
-    ec_upto  = float(ra.ec_value_upto)
-    tax_val  = float(ra.taxable_value); igst = float(ra.igst_amount)
-    cgst = float(ra.cgst_amount); sgst = float(ra.sgst_amount)
-    gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
-    ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
-    net_pay  = float(ra.net_payable)
-
-    def inr(v): return f"Rs. {v:,.2f}"
-
-    abs_headers = [
-        Paragraph("<b>Part</b>", cell_b),
-        Paragraph("<b>Order Value</b>", cell_rb),
-        Paragraph("<b>Up-to-Date Billed</b>", cell_rb),
-        Paragraph("<b>Previous Billed</b>", cell_rb),
-        Paragraph("<b>THIS BILL</b>", cell_rb),
-    ]
-    abs_data = [
-        abs_headers,
-        [Paragraph("Part 1 — Balance Supply (SITC)", cell_s),
-         Paragraph(inr(order_val_p1), cell_r),
-         Paragraph(inr(sup_upto), cell_r),
-         Paragraph(inr(sup_prev), cell_r),
-         Paragraph(inr(sup_this), cell_r)],
-        [Paragraph("Part 2 — Installation & Commissioning", cell_s),
-         Paragraph(inr(order_val_p2), cell_r),
-         Paragraph(inr(ec_upto), cell_r),
-         Paragraph(inr(ec_prev), cell_r),
-         Paragraph(inr(ec_this), cell_r)],
-        [Paragraph("<b>TOTAL TAXABLE AMOUNT</b>", cell_b),
-         Paragraph(inr(order_total), cell_rb),
-         Paragraph(inr(sup_upto + ec_upto), cell_rb),
-         Paragraph(inr(sup_prev + ec_prev), cell_rb),
-         Paragraph(inr(tax_val), cell_rb)],
-    ]
-    abs_tbl = Table(abs_data, colWidths=[65*mm, 30*mm, 35*mm, 30*mm, 26*mm])
-    abs_tbl.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0), (-1,0), GRAY_FILL),
-        ("BACKGROUND",  (0,3), (-1,3), GREEN_FILL),
-        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING",  (0,0), (-1,-1), 3),
-        ("BOTTOMPADDING",(0,0),(-1,-1),3),
-        ("LEFTPADDING", (0,0), (-1,-1), 4),
-        ("RIGHTPADDING",(0,0), (-1,-1), 4),
-    ]))
-    elements.append(abs_tbl)
-    elements.append(Spacer(1, 4))
-
-    # Tax & Summary block
-    def summary_row(label, value, bold=False):
-        ls = cell_b if bold else cell_s
-        rs = cell_rb if bold else cell_r
-        return [Paragraph(f"<b>{label}</b>" if bold else label, ls),
-                Paragraph(f"<b>{inr(value)}</b>" if bold else inr(value), rs)]
-
-    sum_data = []
-    if igst > 0: sum_data.append(summary_row(f"IGST @ {project.igst_rate}%", igst))
-    if cgst > 0:
-        sum_data.append(summary_row(f"CGST @ {project.cgst_rate}%", cgst))
-        sum_data.append(summary_row(f"SGST @ {project.sgst_rate}%", sgst))
-    sum_data.append(summary_row("TOTAL INVOICE VALUE (incl. GST)", gross, bold=True))
-    sum_data.append(summary_row(
-        f"Less: Advance adjusted ({project.pt_advance_pct}% of Part-1 this bill)", adv_rec))
-    if ret_ded > 0:
-        sum_data.append(summary_row(f"Less: Retention ({project.pt_retention_pct}%)", ret_ded))
-    sum_data.append(summary_row("NET AMOUNT RECEIVABLE", net_pay, bold=True))
-
-    sum_tbl = Table(sum_data, colWidths=[130*mm, 56*mm], hAlign="RIGHT")
-    sstyle = [
-        ("BOX",         (0,0), (-1,-1), 0.5, BORDER),
-        ("INNERGRID",   (0,0), (-1,-1), 0.3, BORDER),
-        ("TOPPADDING",  (0,0), (-1,-1), 3),
-        ("BOTTOMPADDING",(0,0),(-1,-1),3),
-        ("LEFTPADDING", (0,0), (-1,-1), 5),
-        ("RIGHTPADDING",(0,0), (-1,-1), 5),
-        ("BACKGROUND",  (0, len(sum_data)-1), (-1, len(sum_data)-1), GREEN_FILL),
-    ]
-    sum_tbl.setStyle(TableStyle(sstyle))
-    elements.append(sum_tbl)
     elements.append(Spacer(1, 6))
 
     # Amount in words
@@ -894,13 +885,6 @@ def generate_tax_invoice_pdf(ra, project):
     elements.append(Spacer(1, 8))
 
     # Payment terms + signatory with stamp
-    pay_terms = [
-        getattr(project, "pt_part1_terms",
-                "20% advance (received) + 80% through 60-days usance LC from shipment date"),
-        getattr(project, "pt_part2_terms",
-                "80% on installation + 20% on commissioning, pro-rata, 15 days from RA bill certification"),
-    ]
-
     try:
         ti_stamp = RLImage(STAMP_PATH, width=28*mm, height=28*mm)
     except Exception:
@@ -909,11 +893,9 @@ def generate_tax_invoice_pdf(ra, project):
     footer_data = [[
         Paragraph("<br/>".join([
             "<b>Payment Terms:</b>",
-            f"Part-1: {pay_terms[0]}",
-            f"Part-2: {pay_terms[1]}",
+            payment_terms_line(project),
             "",
-            "Certified that the particulars given above are true and correct and the amount",
-            "claimed is as per actual work executed.  E. & O. E.",
+            certification_line(project),
         ]), footer_s),
         [Paragraph("For <b>NISH TECHNO PROJECTS PRIVATE LIMITED</b>", footer_s),
          ti_stamp,
@@ -1018,8 +1000,28 @@ def generate_tax_invoice_excel(ra, project):
     ws.row_dimensions[r].height = 10; r += 1
 
     # ── Description of Goods/Services ─────────────────────────────────────
+    # GST / advance / net-payable rows are integrated directly into this
+    # same table (no separate Abstract of Bill or summary table anymore).
     merge(r, 1, 6, "DESCRIPTION OF GOODS / SERVICES", bold=True, fill=GRAY_FILL, align=L)
     r += 1
+
+    FMT = "#,##0.00"
+    tax_val  = float(ra.taxable_value); igst = float(ra.igst_amount)
+    cgst = float(ra.cgst_amount); sgst = float(ra.sgst_amount)
+    gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
+    ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
+    net_pay  = float(ra.net_payable)
+
+    tax_summary = []
+    if igst > 0: tax_summary.append((f"IGST @ {project.igst_rate}%", igst, False))
+    if cgst > 0:
+        tax_summary.append((f"CGST @ {project.cgst_rate}%", cgst, False))
+        tax_summary.append((f"SGST @ {project.sgst_rate}%", sgst, False))
+    tax_summary.append(("Total Invoice Value (incl. GST)", gross, True))
+    tax_summary.append((f"Less: Advance adjusted ({pct_str(project.pt_advance_pct)})", adv_rec, False))
+    if ret_ded > 0:
+        tax_summary.append((f"Less: Retention ({pct_str(project.pt_retention_pct)})", ret_ded, False))
+    tax_summary.append(("Net Amount Receivable", net_pay, True))
 
     if getattr(project, "project_type", "work_contract") == "purchase_order":
         po_lines = [li for li in ra.line_items if float(li.qty_this or 0) > 0]
@@ -1042,9 +1044,16 @@ def generate_tax_invoice_excel(ra, project):
             sc(r, 6, float(li.amount_this), align=R, fmt=FMT)
             total_amt += float(li.amount_this)
             r += 1
-        sc(r, 5, "Total", bold=True, fill=GREEN_FILL, align=R)
-        sc(r, 6, total_amt, bold=True, fill=GREEN_FILL, align=R, fmt=FMT)
+        sc(r, 5, "Total", bold=True, fill=GRAY_FILL, align=R)
+        sc(r, 6, total_amt, bold=True, fill=GRAY_FILL, align=R, fmt=FMT)
         r += 1
+
+        for label, val, bold in tax_summary:
+            fill = GREEN_FILL if bold else None
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+            sc(r, 1, label, bold=bold, fill=fill, align=L)
+            sc(r, 6, val, bold=bold, fill=fill, align=R, fmt=FMT)
+            r += 1
     else:
         milestone = tax_invoice_milestone_label(ra)
         desc_text = "Sales_Work Contract | " + milestone + " | As per attached RA invoice"
@@ -1055,67 +1064,16 @@ def generate_tax_invoice_excel(ra, project):
         sc(r, 1, "1", align=C)
         merge(r, 2, 4, desc_text, align=L, size=9)
         sc(r, 5, project.hsn_sac_code or "", align=C)
-        sc(r, 6, float(ra.taxable_value), align=R, fmt=FMT)
+        sc(r, 6, tax_val, align=R, fmt=FMT)
         r += 1
 
-    ws.row_dimensions[r].height = 10; r += 1
-
-    merge(r, 1, 6, "ABSTRACT OF BILL (Taxable Values, Rs.)", bold=True, fill=GRAY_FILL, align=L)
-    r += 1
-
-    abs_hdrs = ["Part", "Order Value", "Up-to-Date Billed", "Previous Billed", "THIS BILL", ""]
-    for i, h in enumerate(abs_hdrs[:-1], 2):
-        sc(r, i, h, bold=True, fill=GRAY_FILL, align=C)
-    r += 1
-
-    order_val_p1 = float(getattr(project, "wo_value_supply", 0) or 0)
-    order_val_p2 = float(getattr(project, "wo_value_ec", 0) or 0)
-    sup_prev = float(ra.supply_value_prev); sup_this = float(ra.supply_value_this)
-    sup_upto = float(ra.supply_value_upto)
-    ec_prev  = float(ra.ec_value_prev);  ec_this  = float(ra.ec_value_this)
-    ec_upto  = float(ra.ec_value_upto)
-    tax_val  = float(ra.taxable_value); igst = float(ra.igst_amount)
-    cgst = float(ra.cgst_amount); sgst = float(ra.sgst_amount)
-    gross    = float(ra.gross_total); adv_rec = float(ra.advance_recovery)
-    ret_ded  = float(ra.retention_deduction) if hasattr(ra, "retention_deduction") else 0
-    net_pay  = float(ra.net_payable)
-    FMT = "#,##0.00"
-
-    rows_data = [
-        ("Part 1 — Balance Supply (SITC)", order_val_p1, sup_upto, sup_prev, sup_this),
-        ("Part 2 — Installation & Commissioning", order_val_p2, ec_upto, ec_prev, ec_this),
-        ("TOTAL TAXABLE AMOUNT", order_val_p1+order_val_p2,
-         sup_upto+ec_upto, sup_prev+ec_prev, tax_val),
-    ]
-    for i, (label, *vals) in enumerate(rows_data):
-        fill = GREEN_FILL if i == 2 else None
-        bold = i == 2
-        sc(r, 2, label, bold=bold, fill=fill, align=L)
-        for j, v in enumerate(vals):
-            sc(r, 3+j, v, bold=bold, fill=fill, align=R, fmt=FMT)
-        r += 1
-
-    ws.row_dimensions[r].height = 8; r += 1
-
-    tax_rows = []
-    if igst > 0: tax_rows.append((f"IGST @ {project.igst_rate}%", igst, False))
-    if cgst > 0:
-        tax_rows.append((f"CGST @ {project.cgst_rate}%", cgst, False))
-        tax_rows.append((f"SGST @ {project.sgst_rate}%", sgst, False))
-    tax_rows.append(("TOTAL INVOICE VALUE (incl. GST)", gross, True))
-    tax_rows.append((f"Less: Advance adjusted ({project.pt_advance_pct}% of Part-1 this bill)",
-                     adv_rec, False))
-    if ret_ded > 0:
-        tax_rows.append((f"Less: Retention ({project.pt_retention_pct}%)", ret_ded, False))
-    tax_rows.append(("NET AMOUNT RECEIVABLE", net_pay, True))
-
-    for label, val, bold in tax_rows:
-        fill = GREEN_FILL if bold and label.startswith("NET") else (GRAY_FILL if bold else None)
-        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
-        sc(r, 2, label, bold=bold, fill=fill, align=L)
-        ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
-        sc(r, 5, val, bold=bold, fill=fill, align=R, fmt=FMT)
-        r += 1
+        for label, val, bold in tax_summary:
+            fill = GREEN_FILL if bold else None
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
+            sc(r, 1, label, bold=bold, fill=fill, align=L)
+            ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=6)
+            sc(r, 5, val, bold=bold, fill=fill, align=R, fmt=FMT)
+            r += 1
 
     ws.row_dimensions[r].height = 8; r += 1
 
@@ -1126,8 +1084,10 @@ def generate_tax_invoice_excel(ra, project):
           bold=True, align=L, size=9)
     r += 1; ws.row_dimensions[r].height = 8; r += 1
 
-    sc(r, 2, "Certified that the particulars given above are true and correct "
-             "and the amount claimed is as per actual work executed.  E. & O. E.", size=9)
+    merge(r, 1, 4, "Payment Terms: " + payment_terms_line(project), align=L, size=9)
+    r += 1
+
+    sc(r, 2, certification_line(project), size=9)
     sc(r, 5, "For NISH TECHNO PROJECTS PRIVATE LIMITED", bold=True)
     r += 1
 

@@ -183,6 +183,24 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
 
   const isPO = (project.project_type || 'work_contract') === 'purchase_order'
 
+  const taxSummary = []
+  if (computed.igst_amount > 0) taxSummary.push([`IGST @ ${project.igst_rate}%`, computed.igst_amount, false])
+  if (computed.cgst_amount > 0) {
+    taxSummary.push([`CGST @ ${project.cgst_rate}%`, computed.cgst_amount, false])
+    taxSummary.push([`SGST @ ${project.sgst_rate}%`, computed.sgst_amount, false])
+  }
+  taxSummary.push(['Total Invoice Value (incl. GST)', computed.gross_total, true])
+  taxSummary.push([`Less: Advance adjusted (${pctStr(project.pt_advance_pct)})`, computed.advance_recovery, false])
+  if (computed.retention_deduction > 0)
+    taxSummary.push([`Less: Retention (${pctStr(project.pt_retention_pct)})`, computed.retention_deduction, false])
+  taxSummary.push(['Net Amount Receivable', computed.net_payable, true])
+
+  const taxRowsHtml = (colspan) => taxSummary.map(([label, value, bold]) => `
+    <tr style="${bold ? 'font-weight:700;background:#E1F5EE' : ''}">
+      <td colspan="${colspan}">${esc(label)}</td>
+      <td style="text-align:right">Rs. ${money(value)}</td>
+    </tr>`).join('')
+
   let descHtml = ''
   if (isPO) {
     const poLines = (computed.lines || []).filter(li => Number(li.qty_this || 0) > 0)
@@ -200,10 +218,11 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
               <td style="text-align:right">${money(li.rate)}</td>
               <td style="text-align:right">${money(li.amount_this)}</td>
             </tr>`).join('')}
-          <tr style="background:#E1F5EE;font-weight:700">
+          <tr style="background:#F1EFE8;font-weight:700">
             <td colspan="5" style="text-align:right">Total</td>
             <td style="text-align:right">${money(total)}</td>
           </tr>
+          ${taxRowsHtml(5)}
         </tbody>
       </table>`
   } else {
@@ -218,63 +237,30 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
             <td style="text-align:center">${esc(project.hsn_sac_code || '')}</td>
             <td style="text-align:right">${money(computed.taxable_value)}</td>
           </tr>
+          ${taxRowsHtml(3)}
         </tbody>
       </table>`
   }
-
-  const orderValP1 = Number(project.wo_value_supply || 0)
-  const orderValP2 = Number(project.wo_value_ec || 0)
-  const abstractHtml = `
-    <table>
-      <thead><tr><th>Part</th><th>Order Value</th><th>Up-to-Date Billed</th><th>Previous Billed</th><th>THIS BILL</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>Part 1 — Balance Supply (SITC)</td>
-          <td style="text-align:right">${money(orderValP1)}</td>
-          <td style="text-align:right">${money(computed.supply_value_upto)}</td>
-          <td style="text-align:right">${money(computed.supply_value_prev)}</td>
-          <td style="text-align:right">${money(computed.supply_value_this)}</td>
-        </tr>
-        <tr>
-          <td>Part 2 — Installation &amp; Commissioning</td>
-          <td style="text-align:right">${money(orderValP2)}</td>
-          <td style="text-align:right">${money(computed.ec_value_upto)}</td>
-          <td style="text-align:right">${money(computed.ec_value_prev)}</td>
-          <td style="text-align:right">${money(computed.ec_value_this)}</td>
-        </tr>
-        <tr style="background:#E1F5EE;font-weight:700">
-          <td>TOTAL TAXABLE AMOUNT</td>
-          <td style="text-align:right">${money(orderValP1 + orderValP2)}</td>
-          <td style="text-align:right">${money(computed.supply_value_upto + computed.ec_value_upto)}</td>
-          <td style="text-align:right">${money(computed.supply_value_prev + computed.ec_value_prev)}</td>
-          <td style="text-align:right">${money(computed.taxable_value)}</td>
-        </tr>
-      </tbody>
-    </table>`
-
-  const summaryRows = []
-  if (computed.igst_amount > 0) summaryRows.push([`IGST @ ${project.igst_rate}%`, computed.igst_amount, false])
-  if (computed.cgst_amount > 0) {
-    summaryRows.push([`CGST @ ${project.cgst_rate}%`, computed.cgst_amount, false])
-    summaryRows.push([`SGST @ ${project.sgst_rate}%`, computed.sgst_amount, false])
-  }
-  summaryRows.push(['TOTAL INVOICE VALUE (incl. GST)', computed.gross_total, true])
-  summaryRows.push([`Less: Advance adjusted (${project.pt_advance_pct}% of Part-1 this bill)`, computed.advance_recovery, false])
-  if (computed.retention_deduction > 0)
-    summaryRows.push([`Less: Retention (${project.pt_retention_pct}%)`, computed.retention_deduction, false])
-  summaryRows.push(['NET AMOUNT RECEIVABLE', computed.net_payable, true])
-
-  const summaryHtml = summaryRows.map(([label, value, bold]) => `
-    <tr style="${bold ? 'font-weight:700;background:#E1F5EE' : ''}">
-      <td style="padding:6px 12px;border:1px solid #ccc">${esc(label)}</td>
-      <td style="padding:6px 12px;border:1px solid #ccc;text-align:right">Rs. ${money(value)}</td>
-    </tr>`).join('')
 
   const partyBlock = (title, name, addr, gstin) => `
     <div style="flex:1;border:1px solid #ccc;padding:8px;font-size:11px">
       <b>${esc(title)}</b><br/><b>${esc(name || '')}</b><br/>${esc(addr || '')}
       ${gstin ? `<br/>GST No: ${esc(gstin)}` : ''}
     </div>`
+
+  const paymentTermsLine = () => {
+    const parts = []
+    if (Number(project.pt_advance_pct || 0) > 0) parts.push(`Advance: ${pctStr(project.pt_advance_pct)}`)
+    if (Number(project.pt_lc_pct || 0) > 0) parts.push(`Supply: ${pctStr(project.pt_lc_pct)}`)
+    if (Number(project.pt_installation_pct || 0) > 0) parts.push(`Installation: ${pctStr(project.pt_installation_pct)}`)
+    if (Number(project.pt_commissioning_pct || 0) > 0) parts.push(`Commissioning: ${pctStr(project.pt_commissioning_pct)}`)
+    if (Number(project.pt_retention_pct || 0) > 0) parts.push(`Retention: ${pctStr(project.pt_retention_pct)}`)
+    return parts.length ? parts.join(' + ') : 'As per Work Order / Purchase Order terms'
+  }
+
+  const certificationLine = isPO
+    ? 'Certified that the particulars given above are true and correct and the amount claimed is as per actual Items Being Supplied.  E. & O. E.'
+    : 'Certified that the particulars given above are true and correct and the amount claimed is as per actual work executed.  E. & O. E.'
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Tax Invoice Preview — ${esc(invoiceNo)}</title>
@@ -287,7 +273,7 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
   th, td { border: 1px solid #ccc; padding: 5px 6px; }
   th { background: #F1EFE8; text-align:center; }
   .parties { display:flex; gap:8px; margin-bottom:16px; }
-  .summary-table { width: 420px; margin-left: auto; font-size: 12px; }
+  .footer { font-size:11px; color:#444; margin-top:8px; }
 </style></head>
 <body>
   <div class="banner">PREVIEW ONLY — this Tax Invoice has not been saved yet, and is generated from an unsaved RA Bill computation.</div>
@@ -303,9 +289,12 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
   </div>
   <div style="font-weight:700;font-size:12px;margin-bottom:6px">DESCRIPTION OF GOODS / SERVICES</div>
   ${descHtml}
-  <div style="font-weight:700;font-size:12px;margin-bottom:6px">ABSTRACT OF BILL (Taxable Values)</div>
-  ${abstractHtml}
-  <table class="summary-table"><tbody>${summaryHtml}</tbody></table>
+  <div class="footer">
+    <b>Total Invoice Value (incl. GST):</b> Rs. ${money(computed.gross_total)}<br/>
+    <b>Net Amount Receivable:</b> Rs. ${money(computed.net_payable)}<br/><br/>
+    <b>Payment Terms:</b> ${esc(paymentTermsLine())}<br/><br/>
+    ${esc(certificationLine)}
+  </div>
 </body></html>`
 }
 
