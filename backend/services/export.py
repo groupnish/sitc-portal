@@ -117,7 +117,7 @@ def generate_ra_excel(ra, project, line_items):
     r += 1
 
     ws.merge_cells(f"A{r}:M{r}")
-    c = ws.cell(r, 1, f"Invoice No: {ra.invoice_no}   |   Date: {ra.invoice_date}   |   WO: {project.wo_number}")
+    c = ws.cell(r, 1, f"Date: {ra.invoice_date}   |   WO: {project.wo_number}")
     c.font = Font(size=10); c.alignment = center; c.border = border
     r += 1
 
@@ -358,7 +358,7 @@ def generate_ra_pdf(ra, project, line_items):
 
     elements.append(Paragraph(f"RA Bill No. {ra.ra_number} — {project.name}", title_style))
     elements.append(Paragraph(
-        f"Invoice No: {ra.invoice_no} | Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}",
+        f"Date: {ra.invoice_date} | WO: {project.wo_number} | HSN: {project.hsn_sac_code}",
         subtitle_style))
     elements.append(Spacer(1, 6))
 
@@ -705,9 +705,9 @@ def generate_tax_invoice_pdf(ra, project):
 
     # Bill meta row
     meta_data = [[
-        Paragraph(f"<b>RA Bill No.:</b> {ra.ra_number}", cell_s),
         Paragraph(f"<b>Invoice No.:</b> {ra.invoice_no}", cell_s),
         Paragraph(f"<b>Invoice Date:</b> {ra.invoice_date}", cell_s),
+        Paragraph("", cell_s),
     ],[
         Paragraph(f"<b>W.O. No.:</b> {project.wo_number}", cell_s),
         Paragraph(f"<b>W.O. Date:</b> {project.wo_date or ''}", cell_s),
@@ -968,10 +968,9 @@ def generate_tax_invoice_excel(ra, project):
     # IRN line removed
     ws.row_dimensions[r].height = 4; r += 1
 
-    sc(r, 2, f"RA Bill No.: {ra.ra_number}", bold=True)
-    sc(r, 3, f"Invoice No.: {ra.invoice_no}", bold=True)
-    sc(r, 4, f"Invoice Date: {ra.invoice_date}", bold=True)
-    sc(r, 5, f"HSN/SAC: {project.hsn_sac_code}", bold=True)
+    sc(r, 2, f"Invoice No.: {ra.invoice_no}", bold=True)
+    sc(r, 3, f"Invoice Date: {ra.invoice_date}", bold=True)
+    sc(r, 4, f"HSN/SAC: {project.hsn_sac_code}", bold=True)
     r += 1
     sc(r, 2, f"W.O. No.: {project.wo_number}")
     sc(r, 3, f"Place of Supply: {project.place_of_supply}")

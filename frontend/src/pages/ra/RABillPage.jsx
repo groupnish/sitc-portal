@@ -151,7 +151,7 @@ function buildPreviewHtml(computed, project, invoiceNo, invoiceDate) {
 <body>
   <div class="banner">PREVIEW ONLY — this RA Bill has not been saved yet. Values may change if new GRN/Dispatch/Site Progress entries are added before you save.</div>
   <h1>RA Bill No. ${esc(computed.ra_number)} — ${esc(project.name)}</h1>
-  <div class="sub">Invoice No: ${esc(invoiceNo)} | Date: ${esc(invoiceDate)} | WO: ${esc(project.wo_number || '')} | HSN: ${esc(project.hsn_sac_code || '')}</div>
+  <div class="sub">Date: ${esc(invoiceDate)} | WO: ${esc(project.wo_number || '')} | HSN: ${esc(project.hsn_sac_code || '')}</div>
   <table>
     <thead><tr>
       <th>Sr.</th><th>Description</th><th>Unit</th><th>PO Qty</th><th>Rate</th>
@@ -279,7 +279,7 @@ function buildTaxInvoicePreviewHtml(computed, project, invoiceNo, invoiceDate) {
   <div class="banner">PREVIEW ONLY — this Tax Invoice has not been saved yet, and is generated from an unsaved RA Bill computation.</div>
   <h1>TAX INVOICE</h1>
   <div class="sub">
-    RA Bill No.: ${esc(computed.ra_number)} | Invoice No.: ${esc(invoiceNo)} | Invoice Date: ${esc(invoiceDate)}<br/>
+    Invoice No.: ${esc(invoiceNo)} | Invoice Date: ${esc(invoiceDate)}<br/>
     W.O. No.: ${esc(project.wo_number || '')} | HSN/SAC: ${esc(project.hsn_sac_code || '')} | Place of Supply: ${esc(project.place_of_supply || '')}
   </div>
   <div class="parties">
